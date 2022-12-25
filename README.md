@@ -55,10 +55,19 @@ Additionally it provides advanced package and symbol Zsh completion for go doc.
 1. Clone the repo. Currently I don't have the vanity import path set up, so you
    need to clone it manually.
 2. cd path/to/go-doc && make install
+3. Reload your shell.
 
 This will run `go install` and then `go-doc -install-completion` which will
-prompt you about the three files it can install. Type `?[enter]` for more info
-about each file. They are summarized below as well.
+prompt you about the three files it can install. 
+
+Type `?[enter]` for more info about each file. They are summarized below as
+well.
+
+Type `p[enter]` to just print the file to stdout for you to review or redirect.
+
+Note that `ZSH_CUSTOM` must be exported for the zsh completion plugin to
+install successfully. Usually this is at the top of your `.zshrc` if you're
+using Oh My Zsh but just may not be exported.
 
 ### Go Drop In Replacement
 If you want to use `go-doc` as a drop in replacement for `go doc` then you need
@@ -81,10 +90,12 @@ the first argument before `doc`: `go - doc ...`
 
 ### Zsh Completion
 
-If you use Oh My Zsh, then you can put `zsh/plugin/go` into
-`~/.oh-my-zsh/custom/plugins`.
+#### Oh My Zsh
+If you use Oh My Zsh, then the Zsh completion is installed to a custom plugin
+called `go` in `$ZSH_CUSTOM/plugins/go/`. Two files are installed: the
+`go.plugin.zsh` plugin file and the `_golang` completion script.
 
-Add `go` to your list of enabled plugins.
+Then you must add `go` to your list of enabled plugins.
 
 ```zsh
 plugins=(
@@ -96,11 +107,12 @@ plugins=(
 The only other requirement is that `go-doc` is in your PATH, which if you have
 your GOPATH and GOBIN set up correctly, it will be after `go install`.
 
+#### Manual
 If you don't use Oh My Zsh then I assume you can figure out the best way to put
 `zsh/plugins/go/_golang` somewhere in your `FPATH` and know how to enable Zsh
 completion generally.
 
-#### Recommended Zstyles
+### Recommended Zstyles
 
 To get the most out of the completion I recommend the following zstyle options.
 You can just run these in your terminal directly to try them out for the
