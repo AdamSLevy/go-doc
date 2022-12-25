@@ -1,7 +1,9 @@
 # `go doc` Improved, with Zsh Completion
 
 This is a drop in replacement for `go doc` with a number of key improvements.
-Additionally it provides advanced package and symbol Zsh completion for go doc.
+
+Additionally it provides advanced Golang aware Zsh completion of packages and
+symbols for go doc and other go subcommands.
 
 ![demo](./assets/term.gif)
 
