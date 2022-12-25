@@ -3,6 +3,8 @@
 This is a drop in replacement for `go doc` with a number of key improvements.
 Additionally it provides advanced package and symbol Zsh completion for go doc.
 
+![demo](./assets/term.gif)
+
 ## Key Features
 - Advanced Zsh completion of go doc arguments, with package and symbol
   descriptions. This also improves on existing completion for all other go
