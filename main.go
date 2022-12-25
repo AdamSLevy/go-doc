@@ -54,15 +54,12 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-)
 
-var (
-	unexported bool // -u flag
-	matchCase  bool // -c flag
-	showAll    bool // -all flag
-	showCmd    bool // -cmd flag
-	showSrc    bool // -src flag
-	short      bool // -short flag
+	"aslevy.com/go-doc/internal/completion"
+	"aslevy.com/go-doc/internal/flags"
+	"aslevy.com/go-doc/internal/godoc"
+	"aslevy.com/go-doc/internal/outfmt"
+	"aslevy.com/go-doc/internal/workdir"
 )
 
 // usage is a replacement usage function for the flags package.
@@ -84,7 +81,6 @@ func usage() {
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("doc: ")
-	dirsInit()
 	err := do(os.Stdout, flag.CommandLine, os.Args[1:])
 	if err != nil {
 		log.Fatal(err)
@@ -94,37 +90,51 @@ func main() {
 // do is the workhorse, broken out of main to make testing easier.
 func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	flagSet.Usage = usage
-	unexported = false
-	matchCase = false
-	flagSet.BoolVar(&unexported, "u", false, "show unexported symbols as well as exported")
-	flagSet.BoolVar(&matchCase, "c", false, "symbol matching honors case (paths not affected)")
-	flagSet.BoolVar(&showAll, "all", false, "show all documentation for package")
-	flagSet.BoolVar(&showCmd, "cmd", false, "show symbols with package docs even if package is a command")
-	flagSet.BoolVar(&showSrc, "src", false, "show source code for symbol")
-	flagSet.BoolVar(&short, "short", false, "one-line representation for each symbol")
-	flagSet.Parse(args)
+	args = flags.AddParse(flagSet, args...)
+
+	// dirsInit depends on cache.Dir, so it must be called after
+	// flags.AddParse.
+	dirsInit()
+
+	// Set up pager and output format writers.
+	wc := outfmt.Output(writer)
+	defer wc.Close()
+	writer = wc
+
 	var paths []string
 	var symbol, method string
 	// Loop until something is printed.
 	dirs.Reset()
 	for i := 0; ; i++ {
-		buildPackage, userPath, sym, more := parseArgs(flagSet.Args())
+		buildPackage, userPath, sym, more := parseArgs(args)
 		if i > 0 && !more { // Ignore the "more" bit on the first iteration.
 			return failMessage(paths, symbol, method)
 		}
+		completer := completion.NewCompleter(writer, &dirs)
 		if buildPackage == nil {
+			if completion.Enabled {
+				completer.Complete(nil, userPath, sym)
+				return
+			}
 			return fmt.Errorf("no such package: %s", userPath)
 		}
 
 		// The builtin package needs special treatment: its symbols are lower
 		// case but we want to see them, always.
 		if buildPackage.ImportPath == "builtin" {
-			unexported = true
+			godoc.Unexported = true
 		}
 
-		symbol, method = parseSymbol(sym)
 		pkg := parsePackage(writer, buildPackage, userPath)
+		if completion.Enabled {
+			matches := completer.Complete(pkg, userPath, sym)
+			if !matches && more {
+				continue
+			}
+			return
+		}
 		paths = append(paths, pkg.prettyPath())
+		symbol, method = parseSymbol(sym)
 
 		defer func() {
 			pkg.flush()
@@ -141,7 +151,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		}()
 
 		// We have a package.
-		if showAll && symbol == "" {
+		if godoc.ShowAll && symbol == "" {
 			pkg.allDoc()
 			return
 		}
@@ -196,7 +206,7 @@ func failMessage(paths []string, symbol, method string) error {
 // is rand.Float64, we must scan both crypto/rand and math/rand
 // to find the symbol, and the first call will return crypto/rand, true.
 func parseArgs(args []string) (pkg *build.Package, path, symbol string, more bool) {
-	wd, err := os.Getwd()
+	wd, err := workdir.Get()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -243,6 +253,11 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 	if filepath.IsAbs(arg) {
 		pkg, importErr = build.ImportDir(arg, build.ImportComment)
 		if importErr == nil {
+			if completion.Enabled {
+				// Reset arg to match what the user wrote when
+				// we are completing.
+				arg = args[0]
+			}
 			return pkg, arg, "", false
 		}
 	} else {
@@ -279,29 +294,35 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 			period = len(arg)
 		} else {
 			period += start
-			symbol = arg[period+1:]
+			// We include the leading period in the symbol to
+			// disambiguate between a package path with no symbol,
+			// and a package path with a trailing dot and no
+			// symbol. This affects whether completion suggests
+			// packages, or suggests symbols within the specified
+			// package.
+			symbol = arg[period:]
 		}
+		pkgName := arg[:period]
 		// Have we identified a package already?
-		pkg, err := build.Import(arg[0:period], wd, build.ImportComment)
+		pkg, err := build.Import(pkgName, wd, build.ImportComment)
 		if err == nil {
-			return pkg, arg[0:period], symbol, false
+			return pkg, pkgName, symbol, false
 		}
 		// See if we have the basename or tail of a package, as in json for encoding/json
 		// or ivy/value for robpike.io/ivy/value.
-		pkgName := arg[:period]
 		for {
 			path, ok := findNextPackage(pkgName)
 			if !ok {
 				break
 			}
 			if pkg, err = build.ImportDir(path, build.ImportComment); err == nil {
-				return pkg, arg[0:period], symbol, true
+				return pkg, pkgName, symbol, true
 			}
 		}
 		dirs.Reset() // Next iteration of for loop must scan all the directories again.
 	}
 	// If it has a slash, we've failed.
-	if slash >= 0 {
+	if slash >= 0 && !completion.Enabled {
 		// build.Import should always include the path in its error message,
 		// and we should avoid repeating it. Unfortunately, build.Import doesn't
 		// return a structured error. That can't easily be fixed, since it
@@ -315,6 +336,11 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 			log.Fatalf("no such package %s: %s", arg[:period], importErrStr)
 		}
 	}
+
+	if completion.Enabled {
+		arg = args[0]
+	}
+
 	// Guess it's a symbol in the current directory.
 	return importDir(wd), "", arg, false
 }
@@ -347,7 +373,7 @@ func isDotSlash(arg string) bool {
 // importDir is just an error-catching wrapper for build.ImportDir.
 func importDir(dir string) *build.Package {
 	pkg, err := build.ImportDir(dir, build.ImportComment)
-	if err != nil {
+	if err != nil && !completion.Enabled {
 		log.Fatal(err)
 	}
 	return pkg
@@ -357,6 +383,8 @@ func importDir(dir string) *build.Package {
 // Both may be missing or the method may be missing.
 // If present, each must be a valid Go identifier.
 func parseSymbol(str string) (symbol, method string) {
+	// strip any leading dot left by parseFlags
+	str = strings.TrimPrefix(str, ".")
 	if str == "" {
 		return
 	}
@@ -374,15 +402,17 @@ func parseSymbol(str string) (symbol, method string) {
 }
 
 // isExported reports whether the name is an exported identifier.
-// If the unexported flag (-u) is true, isExported returns true because
-// it means that we treat the name as if it is exported.
+// If the unexported flag (-u) is true, isExported returns true because it
+// means that we treat the name as if it is exported.
 func isExported(name string) bool {
-	return unexported || token.IsExported(name)
+	return godoc.Unexported || token.IsExported(name)
 }
 
-// findNextPackage returns the next full file name path that matches the
+var findNextPackage = dirs.FindNextPackage
+
+// FindNextPackage returns the next full file name path that matches the
 // (perhaps partial) package path pkg. The boolean reports if any match was found.
-func findNextPackage(pkg string) (string, bool) {
+func (dirs *Dirs) FindNextPackage(pkg string) (string, bool) {
 	if filepath.IsAbs(pkg) {
 		if dirs.offset == 0 {
 			dirs.offset = -1
@@ -400,8 +430,8 @@ func findNextPackage(pkg string) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		if d.importPath == pkg || strings.HasSuffix(d.importPath, pkgSuffix) {
-			return d.dir, true
+		if d.ImportPath == pkg || strings.HasSuffix(d.ImportPath, pkgSuffix) {
+			return d.Dir, true
 		}
 	}
 }

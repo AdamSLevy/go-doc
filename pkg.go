@@ -11,6 +11,7 @@ import (
 	"go/ast"
 	"go/build"
 	"go/doc"
+	"go/doc/comment"
 	"go/format"
 	"go/parser"
 	"go/printer"
@@ -18,10 +19,20 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"path"
 	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/muesli/termenv"
+
+	"aslevy.com/go-doc/internal/astutil"
+	"aslevy.com/go-doc/internal/completion"
+	"aslevy.com/go-doc/internal/godoc"
+	"aslevy.com/go-doc/internal/open"
+	"aslevy.com/go-doc/internal/outfmt"
+	"aslevy.com/go-doc/internal/workdir"
 )
 
 const (
@@ -40,38 +51,78 @@ type Package struct {
 	typedValue  map[*doc.Value]bool // Consts and vars related to types.
 	constructor map[*doc.Func]bool  // Constructors.
 	fs          *token.FileSet      // Needed for printing.
-	buf         pkgBuffer
+
+	// preBuf is written to by packageClause and importDoc during flush and
+	// then written to the writer prior to buf.
+	buf    pkgBuffer
+	preBuf pkgBuffer
+
+	imports astutil.PackageReferences
 }
 
-func (p *Package) ToText(w io.Writer, text, prefix, codePrefix string) {
+type toTextOptions struct {
+	OutputFormat string
+	Syntaxes     []outfmt.Syntax
+}
+
+func newToTextOptions(opts ...toTextOption) (opt toTextOptions) {
+	opt.OutputFormat = outfmt.Format
+	for _, o := range opts {
+		o(&opt)
+	}
+	return
+}
+
+type toTextOption func(*toTextOptions)
+
+func withOutputFormat(format string) toTextOption {
+	return func(o *toTextOptions) {
+		o.OutputFormat = format
+	}
+}
+
+func withSyntaxes(langs ...outfmt.Syntax) toTextOption {
+	return func(o *toTextOptions) {
+		o.Syntaxes = append(o.Syntaxes, langs...)
+	}
+}
+
+func (p *Package) ToText(w io.Writer, text, prefix, codePrefix string, opts ...toTextOption) {
+	opt := newToTextOptions(opts...)
+
 	d := p.doc.Parser().Parse(text)
 	pr := p.doc.Printer()
+	pr.DocLinkBaseURL = outfmt.BaseURL
 	pr.TextPrefix = prefix
 	pr.TextCodePrefix = codePrefix
-	w.Write(pr.Text(d))
+	var data []byte
+	switch opt.OutputFormat {
+	case outfmt.HTML:
+		data = pr.HTML(d)
+	case outfmt.Markdown:
+		data = pr.Markdown(d)
+	case outfmt.RichMarkdown, outfmt.Term:
+		pr.HeadingLevel = 1
+		pr.HeadingID = func(h *comment.Heading) string { return "" }
+		data = outfmt.ReformatMarkdown(pr.Markdown(d))
+	default:
+		data = pr.Text(d)
+	}
+	w.Write(data)
 }
 
 // pkgBuffer is a wrapper for bytes.Buffer that prints a package clause the
 // first time Write is called.
 type pkgBuffer struct {
-	pkg     *Package
-	printed bool // Prevent repeated package clauses.
+	pkg         *Package
+	printed     bool // Prevent repeated package clauses.
+	startsWith  string
+	inCodeBlock bool
 	bytes.Buffer
 }
 
 func (pb *pkgBuffer) Write(p []byte) (int, error) {
-	pb.packageClause()
 	return pb.Buffer.Write(p)
-}
-
-func (pb *pkgBuffer) packageClause() {
-	if !pb.printed {
-		pb.printed = true
-		// Only show package clause for commands if requested explicitly.
-		if pb.pkg.pkg.Name != "main" || showCmd {
-			pb.pkg.packageClause()
-		}
-	}
 }
 
 type PackageError string // type returned by pkg.Fatalf.
@@ -138,6 +189,9 @@ func (pkg *Package) Fatalf(format string, args ...any) {
 // parsePackage turns the build package we found into a parsed package
 // we can then use to generate documentation.
 func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Package {
+	if completion.Enabled && pkg == nil {
+		return nil
+	}
 	// include tells parser.ParseDir which files to include.
 	// That means the file must be in the build package's GoFiles or CgoFiles
 	// list only (no tag-ignored files, tests, swig or other non-Go files).
@@ -157,13 +211,22 @@ func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Packag
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, pkg.Dir, include, parser.ParseComments)
 	if err != nil {
+		if completion.Enabled {
+			return nil
+		}
 		log.Fatal(err)
 	}
 	// Make sure they are all in one package.
 	if len(pkgs) == 0 {
+		if completion.Enabled {
+			return nil
+		}
 		log.Fatalf("no source-code package in directory %s", pkg.Dir)
 	}
 	if len(pkgs) > 1 {
+		if completion.Enabled {
+			return nil
+		}
 		log.Fatalf("multiple packages in directory %s", pkg.Dir)
 	}
 	astPkg := pkgs[pkg.Name]
@@ -177,9 +240,9 @@ func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Packag
 	// should fix it in go/doc.
 	// A similar story applies to factory functions.
 	mode := doc.AllDecls
-	if showSrc {
-		mode |= doc.PreserveAST // See comment for Package.emit.
-	}
+	// if godoc.ShowSrc {
+	mode |= doc.PreserveAST // See comment for Package.emit.
+	// }
 	docPkg := doc.New(astPkg, pkg.ImportPath, mode)
 	typedValue := make(map[*doc.Value]bool)
 	constructor := make(map[*doc.Func]bool)
@@ -214,7 +277,9 @@ func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Packag
 		build:       pkg,
 		fs:          fset,
 	}
+	p.imports = make(astutil.PackageReferences, len(p.file.Imports))
 	p.buf.pkg = p
+	p.preBuf.pkg = p
 	return p
 }
 
@@ -223,42 +288,120 @@ func (pkg *Package) Printf(format string, args ...any) {
 }
 
 func (pkg *Package) flush() {
-	_, err := pkg.writer.Write(pkg.buf.Bytes())
-	if err != nil {
-		log.Fatal(err)
+	// In the official go doc, the Package.packageClause is called once
+	// prior to writing anything else to pkg.buf.
+	//
+	// However because referenced imports can't be determined until we
+	// render all other requested docs, and we want to print the imports
+	// right under the package clause, we now need two buffers: buf for the
+	// rendered documentation, and preBuf for the package clause and
+	// referenced imports.
+	//
+	// When we flush the package documentation, we first call packageClause
+	// to write the package clause and imports to preBuf.
+	if pkg.buf.Len() > 0 {
+		pkg.packageClause()
 	}
-	pkg.buf.Reset() // Not needed, but it's a flush.
+
+	// If we are rendering rich markdown we need to merge the two buffers
+	// correctly to account for code block delimiters.
+	//
+	// If the preBuf is not in a code block, then there is nothing we need to do.
+	//
+	// Otherwise we either need to close the block if buf starts with text,
+	// or discard buf's opening code block if it starts with go code.
+	if outfmt.IsRichMarkdown() && pkg.preBuf.inCodeBlock {
+		if pkg.buf.startsWith == "code" {
+			// Discard the opening code block from buf...
+			var (
+				line []byte
+				err  error
+			)
+			for err == nil && !bytes.HasPrefix(line, []byte(delim)) {
+				line, err = pkg.buf.ReadBytes('\n') // discard code block beginning
+			}
+		} else {
+			// Close preBuf's code block.
+			pkg.preBuf.Text()
+		}
+	}
+
+	// Write the preBuf first, then the buf.
+	for _, buf := range []*bytes.Buffer{&pkg.preBuf.Buffer, &pkg.buf.Buffer} {
+		if _, err := pkg.writer.Write(buf.Bytes()); err != nil {
+			log.Fatal(err)
+		}
+		buf.Reset() // Not needed, but it's a flush.
+	}
 }
 
 var newlineBytes = []byte("\n\n") // We never ask for more than 2.
 
 // newlines guarantees there are n newlines at the end of the buffer.
 func (pkg *Package) newlines(n int) {
-	for !bytes.HasSuffix(pkg.buf.Bytes(), newlineBytes[:n]) {
-		pkg.buf.WriteRune('\n')
+	fnewlines(&pkg.buf, n)
+}
+func fnewlines(buf *pkgBuffer, n int) {
+	for !bytes.HasSuffix(buf.Bytes(), newlineBytes[:n]) {
+		buf.WriteRune('\n')
 	}
 }
 
-// emit prints the node. If showSrc is true, it ignores the provided comment,
+var subs = []workdir.Sub{{
+	Env:  "GOROOT",
+	Path: buildCtx.GOROOT,
+}, {
+	Env:  "GOPATH",
+	Path: buildCtx.GOPATH,
+}}
+
+// emit prints the node. If godoc.ShowSrc is true, it ignores the provided comment,
 // assuming the comment is in the node itself. Otherwise, the go/doc package
 // clears the stuff we don't want to print anyway. It's a bit of a magic trick.
 func (pkg *Package) emit(comment string, node ast.Node) {
 	if node != nil {
+		open.IfRequested(pkg.fs, node)
+		pkg.imports.Find(node)
 		var arg any = node
-		if showSrc {
+		var doc *ast.CommentGroup
+		if godoc.ShowSrc {
 			// Need an extra little dance to get internal comments to appear.
 			arg = &printer.CommentedNode{
 				Node:     node,
 				Comments: pkg.file.Comments,
 			}
+		} else {
+			// Save the doc comment for later and clear it from the
+			// node before we print it so it doesn't appear in its
+			// raw form.
+			switch decl := node.(type) {
+			case *ast.FuncDecl:
+				doc = decl.Doc
+				decl.Doc = nil
+				decl.Body = nil
+			case *ast.GenDecl:
+				doc = decl.Doc
+				decl.Doc = nil
+			}
 		}
+		pkg.buf.Code()
+
 		err := format.Node(&pkg.buf, pkg.fs, arg)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if comment != "" && !showSrc {
+		if !godoc.NoLocation || godoc.Short {
+			pos := pkg.fs.Position(node.Pos())
+			if pos.Filename != "" && pos.Line > 0 {
+				pkg.Printf("\n// %s +%d\n", workdir.Rel(pos.Filename, subs...), pos.Line)
+			}
+		}
+		if comment != "" && !godoc.ShowSrc {
 			pkg.newlines(1)
-			pkg.ToText(&pkg.buf, comment, indent, indent+indent)
+			pkg.buf.Text()
+
+			syntaxes := outfmt.ParseSyntaxDirectives(doc)
+			pkg.ToText(&pkg.buf, comment, indent, indent+indent, withSyntaxes(syntaxes...))
 			pkg.newlines(2) // Blank line after comment to separate from next item.
 		} else {
 			pkg.newlines(1)
@@ -267,156 +410,207 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 }
 
 // oneLineNode returns a one-line summary of the given input node.
-func (pkg *Package) oneLineNode(node ast.Node) string {
+//
+// If node is an *ast.GenDecl, and a non-empty valName is given, the summary
+// will be of the value (const or var) with that name. Only the first valName
+// is considered.
+//
+// If no valName is given, the summary will be of the first exported value in
+// the node.
+func (pkg *Package) oneLineNode(node ast.Node, valName ...string) string {
 	const maxDepth = 10
-	return pkg.oneLineNodeDepth(node, maxDepth)
+
+	// We only want the imports of this node if we actually print
+	// something. So we save the current imports and create an empty
+	// imports map for this node.
+
+	pkg.buf.Code()
+	line, pkgRefs := pkg.oneLineNodeDepth(node, maxDepth, valName...)
+	if line != "" && !godoc.NoImports {
+		pkg.imports = astutil.Merge(pkg.imports, pkgRefs)
+	}
+	return line
 }
 
 // oneLineNodeDepth returns a one-line summary of the given input node.
 // The depth specifies the maximum depth when traversing the AST.
-func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int) string {
+func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int, valName ...string) (string, astutil.PackageReferences) {
 	const dotDotDot = "..."
 	if depth == 0 {
-		return dotDotDot
+		return dotDotDot, nil
 	}
 	depth--
 
+	var name string
+	if len(valName) > 0 {
+		name = valName[0]
+	}
+
+	var pkgRefs astutil.PackageReferences
 	switch n := node.(type) {
 	case nil:
-		return ""
+		return "", nil
 
 	case *ast.GenDecl:
 		// Formats const and var declarations.
 		trailer := ""
-		if len(n.Specs) > 1 {
+		if name == "" && len(n.Specs) > 1 {
 			trailer = " " + dotDotDot
 		}
 
 		// Find the first relevant spec.
 		typ := ""
-		for i, spec := range n.Specs {
+		for _, spec := range n.Specs {
 			valueSpec := spec.(*ast.ValueSpec) // Must succeed; we can't mix types in one GenDecl.
 
 			// The type name may carry over from a previous specification in the
 			// case of constants and iota.
 			if valueSpec.Type != nil {
-				typ = fmt.Sprintf(" %s", pkg.oneLineNodeDepth(valueSpec.Type, depth))
+				line, refs := pkg.oneLineNodeDepth(valueSpec.Type, depth)
+				typ = fmt.Sprintf(" %s", line)
+				pkgRefs = astutil.Merge(pkgRefs, refs)
 			} else if len(valueSpec.Values) > 0 {
 				typ = ""
 			}
 
-			if !isExported(valueSpec.Names[0].Name) {
-				continue
+			// Official go doc does not search past the first name
+			// in a value spec, skipping the spec if the first name
+			// is not exported.
+			//
+			// It's rare but possible to have a value spec with
+			// a mix of exported and unexported names, in any
+			// order.
+			//
+			// Instead we search all names in the value spec until
+			// we find the first exported var exactly matching
+			// name, if not empty, and otherwise just the first
+			// exported ident.Name.
+			for i, ident := range valueSpec.Names {
+				if !isExported(ident.Name) || (name != "" && ident.Name != name) {
+					continue
+				}
+				val := ""
+				if i < len(valueSpec.Values) && valueSpec.Values[i] != nil {
+					line, refs := pkg.oneLineNodeDepth(valueSpec.Values[i], depth)
+					val = fmt.Sprintf(" = %s", line)
+					pkgRefs = astutil.Merge(pkgRefs, refs)
+				}
+				return fmt.Sprintf("%s %s%s%s%s", n.Tok, valueSpec.Names[i], typ, val, trailer), pkgRefs
 			}
-			val := ""
-			if i < len(valueSpec.Values) && valueSpec.Values[i] != nil {
-				val = fmt.Sprintf(" = %s", pkg.oneLineNodeDepth(valueSpec.Values[i], depth))
-			}
-			return fmt.Sprintf("%s %s%s%s%s", n.Tok, valueSpec.Names[0], typ, val, trailer)
 		}
-		return ""
+		return "", nil
 
 	case *ast.FuncDecl:
 		// Formats func declarations.
 		name := n.Name.Name
-		recv := pkg.oneLineNodeDepth(n.Recv, depth)
+		recv, pkgRefs := pkg.oneLineNodeDepth(n.Recv, depth)
 		if len(recv) > 0 {
 			recv = "(" + recv + ") "
 		}
-		fnc := pkg.oneLineNodeDepth(n.Type, depth)
+		fnc, refs := pkg.oneLineNodeDepth(n.Type, depth)
 		fnc = strings.TrimPrefix(fnc, "func")
-		return fmt.Sprintf("func %s%s%s", recv, name, fnc)
+		return fmt.Sprintf("func %s%s%s", recv, name, fnc), astutil.Merge(pkgRefs, refs)
 
 	case *ast.TypeSpec:
 		sep := " "
 		if n.Assign.IsValid() {
 			sep = " = "
 		}
-		tparams := pkg.formatTypeParams(n.TypeParams, depth)
-		return fmt.Sprintf("type %s%s%s%s", n.Name.Name, tparams, sep, pkg.oneLineNodeDepth(n.Type, depth))
+		tparams, pkgRefs := pkg.formatTypeParams(n.TypeParams, depth)
+		line, refs := pkg.oneLineNodeDepth(n.Type, depth)
+		return fmt.Sprintf("type %s%s%s%s", n.Name.Name, tparams, sep, line), astutil.Merge(pkgRefs, refs)
 
 	case *ast.FuncType:
 		var params []string
+		var pkgRefs astutil.PackageReferences
 		if n.Params != nil {
-			for _, field := range n.Params.List {
-				params = append(params, pkg.oneLineField(field, depth))
-			}
+			var refs astutil.PackageReferences
+			params, _, refs = pkg.oneLineFieldList(n.Params, depth)
+			pkgRefs = astutil.Merge(pkgRefs, refs)
 		}
-		needParens := false
+		var needParens bool
 		var results []string
 		if n.Results != nil {
-			needParens = needParens || len(n.Results.List) > 1
-			for _, field := range n.Results.List {
-				needParens = needParens || len(field.Names) > 0
-				results = append(results, pkg.oneLineField(field, depth))
-			}
+			var refs astutil.PackageReferences
+			results, needParens, refs = pkg.oneLineFieldList(n.Results, depth)
+			pkgRefs = astutil.Merge(pkgRefs, refs)
 		}
 
-		tparam := pkg.formatTypeParams(n.TypeParams, depth)
+		tparam, refs := pkg.formatTypeParams(n.TypeParams, depth)
+		pkgRefs = astutil.Merge(pkgRefs, refs)
 		param := joinStrings(params)
 		if len(results) == 0 {
-			return fmt.Sprintf("func%s(%s)", tparam, param)
+			return fmt.Sprintf("func%s(%s)", tparam, param), pkgRefs
 		}
 		result := joinStrings(results)
 		if !needParens {
-			return fmt.Sprintf("func%s(%s) %s", tparam, param, result)
+			return fmt.Sprintf("func%s(%s) %s", tparam, param, result), pkgRefs
 		}
-		return fmt.Sprintf("func%s(%s) (%s)", tparam, param, result)
+		return fmt.Sprintf("func%s(%s) (%s)", tparam, param, result), pkgRefs
 
 	case *ast.StructType:
 		if n.Fields == nil || len(n.Fields.List) == 0 {
-			return "struct{}"
+			return "struct{}", nil
 		}
-		return "struct{ ... }"
+		return "struct{ ... }", nil
 
 	case *ast.InterfaceType:
 		if n.Methods == nil || len(n.Methods.List) == 0 {
-			return "interface{}"
+			return "interface{}", nil
 		}
-		return "interface{ ... }"
+		return "interface{ ... }", nil
 
 	case *ast.FieldList:
 		if n == nil || len(n.List) == 0 {
-			return ""
+			return "", nil
 		}
 		if len(n.List) == 1 {
 			return pkg.oneLineField(n.List[0], depth)
 		}
-		return dotDotDot
+		return dotDotDot, nil
 
 	case *ast.FuncLit:
-		return pkg.oneLineNodeDepth(n.Type, depth) + " { ... }"
+		line, pkgRefs := pkg.oneLineNodeDepth(n.Type, depth)
+		return line + " { ... }", pkgRefs
 
 	case *ast.CompositeLit:
-		typ := pkg.oneLineNodeDepth(n.Type, depth)
+		typ, _ := pkg.oneLineNodeDepth(n.Type, depth)
 		if len(n.Elts) == 0 {
-			return fmt.Sprintf("%s{}", typ)
+			return fmt.Sprintf("%s{}", typ), nil
 		}
-		return fmt.Sprintf("%s{ %s }", typ, dotDotDot)
+		return fmt.Sprintf("%s{ %s }", typ, dotDotDot), nil
 
 	case *ast.ArrayType:
-		length := pkg.oneLineNodeDepth(n.Len, depth)
-		element := pkg.oneLineNodeDepth(n.Elt, depth)
-		return fmt.Sprintf("[%s]%s", length, element)
+		length, pkgRefs := pkg.oneLineNodeDepth(n.Len, depth)
+		element, refs := pkg.oneLineNodeDepth(n.Elt, depth)
+		return fmt.Sprintf("[%s]%s", length, element), astutil.Merge(pkgRefs, refs)
 
 	case *ast.MapType:
-		key := pkg.oneLineNodeDepth(n.Key, depth)
-		value := pkg.oneLineNodeDepth(n.Value, depth)
-		return fmt.Sprintf("map[%s]%s", key, value)
+		key, pkgRefs := pkg.oneLineNodeDepth(n.Key, depth)
+		value, refs := pkg.oneLineNodeDepth(n.Value, depth)
+		return fmt.Sprintf("map[%s]%s", key, value), astutil.Merge(pkgRefs, refs)
 
 	case *ast.CallExpr:
-		fnc := pkg.oneLineNodeDepth(n.Fun, depth)
+		fnc, pkgRefs := pkg.oneLineNodeDepth(n.Fun, depth)
 		var args []string
+		var argsLen int
 		for _, arg := range n.Args {
-			args = append(args, pkg.oneLineNodeDepth(arg, depth))
+			line, refs := pkg.oneLineNodeDepth(arg, depth)
+			args = append(args, line)
+			argsLen += len(line) + len(", ")
+			if argsLen > punchedCardWidth {
+				break
+			}
+			pkgRefs = astutil.Merge(pkgRefs, refs)
 		}
-		return fmt.Sprintf("%s(%s)", fnc, joinStrings(args))
+		return fmt.Sprintf("%s(%s)", fnc, joinStrings(args)), pkgRefs
 
 	case *ast.UnaryExpr:
-		return fmt.Sprintf("%s%s", n.Op, pkg.oneLineNodeDepth(n.X, depth))
+		line, pkgRefs := pkg.oneLineNodeDepth(n.X, depth)
+		return fmt.Sprintf("%s%s", n.Op, line), pkgRefs
 
 	case *ast.Ident:
-		return n.Name
+		return n.Name, nil
 
 	default:
 		// As a fallback, use default formatter for all unknown node types.
@@ -424,33 +618,55 @@ func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int) string {
 		format.Node(buf, pkg.fs, node)
 		s := buf.String()
 		if strings.Contains(s, "\n") {
-			return dotDotDot
+			return dotDotDot, nil
 		}
-		return s
+		if !godoc.NoImports {
+			pkgRefs = astutil.FindPackageReferences(node)
+		}
+		return s, pkgRefs
 	}
 }
 
-func (pkg *Package) formatTypeParams(list *ast.FieldList, depth int) string {
+func (pkg *Package) formatTypeParams(list *ast.FieldList, depth int) (string, astutil.PackageReferences) {
 	if list.NumFields() == 0 {
-		return ""
+		return "", nil
 	}
-	var tparams []string
+	tparams, _, pkgRefs := pkg.oneLineFieldList(list, depth)
+	return "[" + joinStrings(tparams) + "]", pkgRefs
+}
+
+func (pkg *Package) oneLineFieldList(list *ast.FieldList, depth int) ([]string, bool, astutil.PackageReferences) {
+	var params []string
+	var paramsLen int
+	needParens := false
+	needParens = needParens || len(list.List) > 1
+	var pkgRefs astutil.PackageReferences
 	for _, field := range list.List {
-		tparams = append(tparams, pkg.oneLineField(field, depth))
+		needParens = needParens || len(field.Names) > 0
+
+		param, refs := pkg.oneLineField(field, depth)
+		params = append(params, param)
+
+		paramsLen += len(param) + len(", ")
+		if paramsLen > punchedCardWidth {
+			break
+		}
+		pkgRefs = astutil.Merge(pkgRefs, refs)
 	}
-	return "[" + joinStrings(tparams) + "]"
+	return params, needParens, pkgRefs
 }
 
 // oneLineField returns a one-line summary of the field.
-func (pkg *Package) oneLineField(field *ast.Field, depth int) string {
+func (pkg *Package) oneLineField(field *ast.Field, depth int) (string, astutil.PackageReferences) {
 	var names []string
 	for _, name := range field.Names {
 		names = append(names, name.Name)
 	}
+	line, pkgRefs := pkg.oneLineNodeDepth(field.Type, depth)
 	if len(names) == 0 {
-		return pkg.oneLineNodeDepth(field.Type, depth)
+		return line, pkgRefs
 	}
-	return joinStrings(names) + " " + pkg.oneLineNodeDepth(field.Type, depth)
+	return joinStrings(names) + " " + line, pkgRefs
 }
 
 // joinStrings formats the input as a comma-separated list,
@@ -470,6 +686,7 @@ func joinStrings(ss []string) string {
 // allDoc prints all the docs for the package.
 func (pkg *Package) allDoc() {
 	pkg.Printf("") // Trigger the package clause; we know the package exists.
+	pkg.buf.Text()
 	pkg.ToText(&pkg.buf, pkg.doc.Doc, "", indent)
 	pkg.newlines(1)
 
@@ -478,8 +695,14 @@ func (pkg *Package) allDoc() {
 	hdr := ""
 	printHdr := func(s string) {
 		if hdr != s {
-			pkg.Printf("\n%s\n\n", s)
+			pkg.buf.Text()
+			hdrFmt := "\n%s\n\n"
+			if outfmt.IsRichMarkdown() {
+				hdrFmt = "\n# %s\n\n"
+			}
+			pkg.Printf(hdrFmt, s)
 			hdr = s
+			pkg.buf.Code()
 		}
 	}
 
@@ -528,18 +751,19 @@ func (pkg *Package) allDoc() {
 
 // packageDoc prints the docs for the package (package doc plus one-liners of the rest).
 func (pkg *Package) packageDoc() {
-	pkg.Printf("") // Trigger the package clause; we know the package exists.
-	if !short {
-		pkg.ToText(&pkg.buf, pkg.doc.Doc, "", indent)
+	open.IfRequested(pkg.fs, pkg.pkg)
+	if !godoc.Short {
+		pkg.buf.Text()
+		pkg.ToText(&pkg.buf, pkg.doc.Doc, "", indent, withSyntaxes(outfmt.ParseSyntaxDirectives(pkg.file.Doc)...))
 		pkg.newlines(1)
 	}
 
-	if pkg.pkg.Name == "main" && !showCmd {
+	if pkg.pkg.Name == "main" && !godoc.ShowCmd {
 		// Show only package docs for commands.
 		return
 	}
 
-	if !short {
+	if !godoc.Short {
 		pkg.newlines(2) // Guarantee blank line before the components.
 	}
 
@@ -547,14 +771,14 @@ func (pkg *Package) packageDoc() {
 	pkg.valueSummary(pkg.doc.Vars, false)
 	pkg.funcSummary(pkg.doc.Funcs, false)
 	pkg.typeSummary()
-	if !short {
+	if !godoc.Short {
 		pkg.bugs()
 	}
 }
 
 // packageClause prints the package clause.
 func (pkg *Package) packageClause() {
-	if short {
+	if godoc.Short {
 		return
 	}
 	importPath := pkg.build.ImportComment
@@ -568,26 +792,37 @@ func (pkg *Package) packageClause() {
 	// Either way, we don't know it now, and it's cheap to (re)compute it.
 	if usingModules {
 		for _, root := range codeRoots() {
-			if pkg.build.Dir == root.dir {
-				importPath = root.importPath
+			if pkg.build.Dir == root.Dir {
+				importPath = root.ImportPath
 				break
 			}
-			if strings.HasPrefix(pkg.build.Dir, root.dir+string(filepath.Separator)) {
-				suffix := filepath.ToSlash(pkg.build.Dir[len(root.dir)+1:])
-				if root.importPath == "" {
+			if strings.HasPrefix(pkg.build.Dir, root.Dir+string(filepath.Separator)) {
+				suffix := filepath.ToSlash(pkg.build.Dir[len(root.Dir)+1:])
+				if root.ImportPath == "" {
 					importPath = suffix
 				} else {
-					importPath = root.importPath + "/" + suffix
+					importPath = root.ImportPath + "/" + suffix
 				}
 				break
 			}
 		}
 	}
 
-	pkg.Printf("package %s // import %q\n\n", pkg.name, importPath)
+	pkg.preBuf.Code()
+	fmt.Fprintf(&pkg.preBuf, "package %s // import \"%s\"\n\n", pkg.name, importPathLink(importPath))
 	if !usingModules && importPath != pkg.build.ImportPath {
-		pkg.Printf("WARNING: package source is installed in %q\n", pkg.build.ImportPath)
+		pkg.preBuf.Text()
+		fmt.Fprintf(&pkg.preBuf, "WARNING: package source is installed in %q\n", pkg.build.ImportPath)
 	}
+
+	pkg.importDoc()
+}
+func importPathLink(pkgPath string) string {
+	if outfmt.Format != outfmt.Term {
+		return pkgPath
+	}
+	link := path.Join(outfmt.BaseURL, pkgPath)
+	return termenv.Hyperlink(link, pkgPath)
 }
 
 // valueSummary prints a one-line summary for each set of values and constants.
@@ -777,7 +1012,7 @@ func (pkg *Package) valueDoc(value *doc.Value, printed map[*ast.GenDecl]bool) {
 		}
 
 		for _, ident := range vspec.Names {
-			if showSrc || isExported(ident.Name) {
+			if godoc.ShowSrc || isExported(ident.Name) {
 				if vspec.Type == nil && vspec.Values == nil && typ != nil {
 					// This a standalone identifier, as in the case of iota usage.
 					// Thus, assume the type comes from the previous type.
@@ -814,7 +1049,7 @@ func (pkg *Package) typeDoc(typ *doc.Type) {
 	pkg.emit(typ.Doc, decl)
 	pkg.newlines(2)
 	// Show associated methods, constants, etc.
-	if showAll {
+	if godoc.ShowAll {
 		printed := make(map[*ast.GenDecl]bool)
 		// We can use append here to print consts, then vars. Ditto for funcs and methods.
 		values := typ.Consts
@@ -849,7 +1084,7 @@ func (pkg *Package) typeDoc(typ *doc.Type) {
 // structs and methods from interfaces (unless the unexported flag is set or we
 // are asked to show the original source).
 func trimUnexportedElems(spec *ast.TypeSpec) {
-	if unexported || showSrc {
+	if godoc.Unexported || godoc.ShowSrc {
 		return
 	}
 	switch typ := spec.Type.(type) {
@@ -992,8 +1227,10 @@ func (pkg *Package) printMethodDoc(symbol, method string) bool {
 			}
 		}
 		if found {
+			pkg.buf.Code()
 			pkg.Printf("type %s ", spec.Name)
 			inter.Methods.List, methods = methods, inter.Methods.List
+			pkg.buf.Code()
 			err := format.Node(&pkg.buf, pkg.fs, inter)
 			if err != nil {
 				log.Fatal(err)
@@ -1035,13 +1272,14 @@ func (pkg *Package) printFieldDoc(symbol, fieldName string) bool {
 					continue
 				}
 				if !found {
+					pkg.buf.Code()
 					pkg.Printf("type %s struct {\n", typ.Name)
 				}
 				if field.Doc != nil {
 					// To present indented blocks in comments correctly, process the comment as
 					// a unit before adding the leading // to each line.
 					docBuf := new(bytes.Buffer)
-					pkg.ToText(docBuf, field.Doc.Text(), "", indent)
+					pkg.ToText(docBuf, field.Doc.Text(), "", indent, withOutputFormat(outfmt.Text))
 					scanner := bufio.NewScanner(docBuf)
 					for scanner.Scan() {
 						fmt.Fprintf(&pkg.buf, "%s// %s\n", indent, scanner.Bytes())
@@ -1083,7 +1321,7 @@ func match(user, program string) bool {
 	if !isExported(program) {
 		return false
 	}
-	if matchCase {
+	if godoc.MatchCase {
 		return user == program
 	}
 	for _, u := range user {

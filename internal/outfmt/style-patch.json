@@ -1,0 +1,23 @@
+{
+  "document": {
+   "block_prefix": "",
+   "block_suffix": "",
+   "margin": 2
+  },
+  "heading": {
+    "block_prefix": "\n"
+  },
+  "paragraph": {
+    "block_prefix": "",
+    "block_suffix": ""
+  },
+  "code": {
+    "prefix": "",
+    "suffix": ""
+  },
+  "code_block": {
+    "block_prefix": "",
+    "block_suffix": "",
+    "margin": 0
+  }
+}

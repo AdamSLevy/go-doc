@@ -7,6 +7,8 @@ package main
 import (
 	"bytes"
 	"flag"
+	"go/build"
+	"internal/testenv"
 	"log"
 	"os"
 	"path/filepath"
@@ -21,11 +23,11 @@ func TestMain(m *testing.M) {
 	buildCtx.GOPATH = ""
 	testGOPATH = true // force GOPATH mode; module test is in cmd/go/testdata/script/mod_doc.txt
 
-	// // Set GOROOT in case runtime.GOROOT is wrong (for example, if the test was
-	// // built with -trimpath). dirsInit would identify it using 'go env GOROOT',
-	// // but we can't be sure that the 'go' in $PATH is the right one either.
-	// buildCtx.GOROOT = testenv.GOROOT(nil)
-	// build.Default.GOROOT = testenv.GOROOT(nil)
+	// Set GOROOT in case runtime.GOROOT is wrong (for example, if the test was
+	// built with -trimpath). dirsInit would identify it using 'go env GOROOT',
+	// but we can't be sure that the 'go' in $PATH is the right one either.
+	buildCtx.GOROOT = testenv.GOROOT(nil)
+	build.Default.GOROOT = testenv.GOROOT(nil)
 
 	// Add $GOROOT/src/cmd/doc/testdata explicitly so we can access its contents in the test.
 	// Normally testdata directories are ignored, but sending it to dirs.scan directly is
@@ -34,10 +36,14 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+
+	// Don't use a pager in tests.
+	noPager = true
+
 	dirsInit(
-		Dir{importPath: "testdata", dir: testdataDir},
-		Dir{importPath: "testdata/nested", dir: filepath.Join(testdataDir, "nested")},
-		Dir{importPath: "testdata/nested/nested", dir: filepath.Join(testdataDir, "nested", "nested")})
+		Dir{ImportPath: "testdata", Dir: testdataDir},
+		Dir{ImportPath: "testdata/nested", Dir: filepath.Join(testdataDir, "nested")},
+		Dir{ImportPath: "testdata/nested/nested", Dir: filepath.Join(testdataDir, "nested", "nested")})
 
 	os.Exit(m.Run())
 }
