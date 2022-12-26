@@ -23,7 +23,7 @@ symbols for go doc and other go subcommands.
   can be included with `-stdlib`. Imports can be omitted with the `-no-imports`
   flag. This is very useful when dealing with overloaded package names.
 - The path to the file and line of a requested symbol is shown as a comment
-  below the rendered symbol. This can be omitted with `-no-location`.A
+  below the rendered symbol. This can be omitted with `-no-location`.
 - If the `-open` flag is set, instead of showing the docs, the file containing
   a requested symbol is opened using EDITOR.
 
