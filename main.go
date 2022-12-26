@@ -408,11 +408,9 @@ func isExported(name string) bool {
 	return godoc.Unexported || token.IsExported(name)
 }
 
-var findNextPackage = dirs.FindNextPackage
-
-// FindNextPackage returns the next full file name path that matches the
+// findNextPackage returns the next full file name path that matches the
 // (perhaps partial) package path pkg. The boolean reports if any match was found.
-func (dirs *Dirs) FindNextPackage(pkg string) (string, bool) {
+func findNextPackage(pkg string) (string, bool) {
 	if filepath.IsAbs(pkg) {
 		if dirs.offset == 0 {
 			dirs.offset = -1
