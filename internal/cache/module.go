@@ -145,12 +145,15 @@ func (c *Cache) Load(importPath, moduleDir string, register RegisterPackage) err
 	return nil
 }
 
-const moduleCacheName = "-module.json"
+const (
+	moduleCacheName   = "-module.json"
+	moduleCacheStdlib = "stdlib@"
+)
 
 func (c *Cache) moduleCachePath(importPath, modDir string) (dir, filename string) {
 	switch importPath {
 	case "", "cmd":
-		return c.Dir, "stdlib@" + c.GoVersion + moduleCacheName
+		return c.Dir, moduleCacheStdlib + c.GoVersion + moduleCacheName
 	}
 	numImportSegments := strings.Count(importPath, "/")
 	numDirSegments := strings.Count(modDir, string(os.PathSeparator))
@@ -165,7 +168,7 @@ func (c *Cache) moduleCachePath(importPath, modDir string) (dir, filename string
 			lastSlash = slash
 		}
 	}
-	rel := modDir[slash+1 : lastSlash]
+	rel := modDir[slash+1 : lastSlash+1]
 	dir = filepath.Join(c.Dir, rel)
 	filename = modDir[lastSlash+1:] + moduleCacheName
 	return dir, filename

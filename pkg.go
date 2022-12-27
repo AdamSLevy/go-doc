@@ -19,20 +19,16 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"path"
 	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"github.com/muesli/termenv"
 
 	"aslevy.com/go-doc/internal/astutil"
 	"aslevy.com/go-doc/internal/completion"
 	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/open"
 	"aslevy.com/go-doc/internal/outfmt"
-	"aslevy.com/go-doc/internal/workdir"
 )
 
 const (
@@ -51,40 +47,10 @@ type Package struct {
 	typedValue  map[*doc.Value]bool // Consts and vars related to types.
 	constructor map[*doc.Func]bool  // Constructors.
 	fs          *token.FileSet      // Needed for printing.
+	buf         pkgBuffer
 
-	// preBuf is written to by packageClause and importDoc during flush and
-	// then written to the writer prior to buf.
-	buf    pkgBuffer
-	preBuf pkgBuffer
-
-	imports astutil.PackageReferences
-}
-
-type toTextOptions struct {
-	OutputFormat string
-	Syntaxes     []outfmt.Syntax
-}
-
-func newToTextOptions(opts ...toTextOption) (opt toTextOptions) {
-	opt.OutputFormat = outfmt.Format
-	for _, o := range opts {
-		o(&opt)
-	}
-	return
-}
-
-type toTextOption func(*toTextOptions)
-
-func withOutputFormat(format string) toTextOption {
-	return func(o *toTextOptions) {
-		o.OutputFormat = format
-	}
-}
-
-func withSyntaxes(langs ...outfmt.Syntax) toTextOption {
-	return func(o *toTextOptions) {
-		o.Syntaxes = append(o.Syntaxes, langs...)
-	}
+	imports       astutil.PackageReferences
+	insertImports int
 }
 
 func (p *Package) ToText(w io.Writer, text, prefix, codePrefix string, opts ...toTextOption) {
@@ -114,15 +80,26 @@ func (p *Package) ToText(w io.Writer, text, prefix, codePrefix string, opts ...t
 // pkgBuffer is a wrapper for bytes.Buffer that prints a package clause the
 // first time Write is called.
 type pkgBuffer struct {
-	pkg         *Package
-	printed     bool // Prevent repeated package clauses.
-	startsWith  string
-	inCodeBlock bool
+	pkg     *Package
+	printed bool // Prevent repeated package clauses.
 	bytes.Buffer
+
+	inCodeBlock bool
 }
 
 func (pb *pkgBuffer) Write(p []byte) (int, error) {
+	pb.packageClause()
 	return pb.Buffer.Write(p)
+}
+
+func (pb *pkgBuffer) packageClause() {
+	if !pb.printed {
+		pb.printed = true
+		// Only show package clause for commands if requested explicitly.
+		if pb.pkg.pkg.Name != "main" || godoc.ShowCmd {
+			pb.pkg.packageClause()
+		}
+	}
 }
 
 type PackageError string // type returned by pkg.Fatalf.
@@ -240,9 +217,7 @@ func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Packag
 	// should fix it in go/doc.
 	// A similar story applies to factory functions.
 	mode := doc.AllDecls
-	// if godoc.ShowSrc {
 	mode |= doc.PreserveAST // See comment for Package.emit.
-	// }
 	docPkg := doc.New(astPkg, pkg.ImportPath, mode)
 	typedValue := make(map[*doc.Value]bool)
 	constructor := make(map[*doc.Func]bool)
@@ -277,9 +252,8 @@ func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Packag
 		build:       pkg,
 		fs:          fset,
 	}
-	p.imports = make(astutil.PackageReferences, len(p.file.Imports))
+	p.imports = make(astutil.PackageReferences)
 	p.buf.pkg = p
-	p.preBuf.pkg = p
 	return p
 }
 
@@ -288,74 +262,29 @@ func (pkg *Package) Printf(format string, args ...any) {
 }
 
 func (pkg *Package) flush() {
-	// In the official go doc, the Package.packageClause is called once
-	// prior to writing anything else to pkg.buf.
-	//
-	// However because referenced imports can't be determined until we
-	// render all other requested docs, and we want to print the imports
-	// right under the package clause, we now need two buffers: buf for the
-	// rendered documentation, and preBuf for the package clause and
-	// referenced imports.
-	//
-	// When we flush the package documentation, we first call packageClause
-	// to write the package clause and imports to preBuf.
-	if pkg.buf.Len() > 0 {
-		pkg.packageClause()
+	_, err := pkg.writer.Write(pkg.buf.Next(pkg.insertImports))
+	if err != nil {
+		log.Fatal(err)
 	}
+	pkg.flushImports()
 
-	// If we are rendering rich markdown we need to merge the two buffers
-	// correctly to account for code block delimiters.
-	//
-	// If the preBuf is not in a code block, then there is nothing we need to do.
-	//
-	// Otherwise we either need to close the block if buf starts with text,
-	// or discard buf's opening code block if it starts with go code.
-	if outfmt.IsRichMarkdown() && pkg.preBuf.inCodeBlock {
-		if pkg.buf.startsWith == "code" {
-			// Discard the opening code block from buf...
-			var (
-				line []byte
-				err  error
-			)
-			for err == nil && !bytes.HasPrefix(line, []byte(delim)) {
-				line, err = pkg.buf.ReadBytes('\n') // discard code block beginning
-			}
-		} else {
-			// Close preBuf's code block.
-			pkg.preBuf.Text()
-		}
+	_, err = pkg.writer.Write(pkg.buf.Bytes())
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	// Write the preBuf first, then the buf.
-	for _, buf := range []*bytes.Buffer{&pkg.preBuf.Buffer, &pkg.buf.Buffer} {
-		if _, err := pkg.writer.Write(buf.Bytes()); err != nil {
-			log.Fatal(err)
-		}
-		buf.Reset() // Not needed, but it's a flush.
-	}
+	pkg.buf.Reset() // Not needed, but it's a flush.
 }
 
 var newlineBytes = []byte("\n\n") // We never ask for more than 2.
 
 // newlines guarantees there are n newlines at the end of the buffer.
 func (pkg *Package) newlines(n int) {
-	fnewlines(&pkg.buf, n)
-}
-func fnewlines(buf *pkgBuffer, n int) {
-	for !bytes.HasSuffix(buf.Bytes(), newlineBytes[:n]) {
-		buf.WriteRune('\n')
+	for !bytes.HasSuffix(pkg.buf.Bytes(), newlineBytes[:n]) {
+		pkg.buf.WriteRune('\n')
 	}
 }
 
-var subs = []workdir.Sub{{
-	Env:  "GOROOT",
-	Path: buildCtx.GOROOT,
-}, {
-	Env:  "GOPATH",
-	Path: buildCtx.GOPATH,
-}}
-
-// emit prints the node. If godoc.ShowSrc is true, it ignores the provided comment,
+// emit prints the node. If showSrc is true, it ignores the provided comment,
 // assuming the comment is in the node itself. Otherwise, the go/doc package
 // clears the stuff we don't want to print anyway. It's a bit of a magic trick.
 func (pkg *Package) emit(comment string, node ast.Node) {
@@ -390,12 +319,7 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		if !godoc.NoLocation || godoc.Short {
-			pos := pkg.fs.Position(node.Pos())
-			if pos.Filename != "" && pos.Line > 0 {
-				pkg.Printf("\n// %s +%d\n", workdir.Rel(pos.Filename, subs...), pos.Line)
-			}
-		}
+		pkg.emitLocation(node)
 		if comment != "" && !godoc.ShowSrc {
 			pkg.newlines(1)
 			pkg.buf.Text()
@@ -752,6 +676,7 @@ func (pkg *Package) allDoc() {
 // packageDoc prints the docs for the package (package doc plus one-liners of the rest).
 func (pkg *Package) packageDoc() {
 	open.IfRequested(pkg.fs, pkg.pkg)
+	pkg.Printf("") // Trigger the package clause; we know the package exists.
 	if !godoc.Short {
 		pkg.buf.Text()
 		pkg.ToText(&pkg.buf, pkg.doc.Doc, "", indent, withSyntaxes(outfmt.ParseSyntaxDirectives(pkg.file.Doc)...))
@@ -808,21 +733,13 @@ func (pkg *Package) packageClause() {
 		}
 	}
 
-	pkg.preBuf.Code()
-	fmt.Fprintf(&pkg.preBuf, "package %s // import \"%s\"\n\n", pkg.name, importPathLink(importPath))
+	pkg.buf.Code()
+	pkg.Printf("package %s // import \"%s\"\n\n", pkg.name, importPathLink(importPath))
+	pkg.insertImports = pkg.buf.Len()
 	if !usingModules && importPath != pkg.build.ImportPath {
-		pkg.preBuf.Text()
-		fmt.Fprintf(&pkg.preBuf, "WARNING: package source is installed in %q\n", pkg.build.ImportPath)
+		pkg.buf.Text()
+		pkg.Printf("WARNING: package source is installed in %q\n", pkg.build.ImportPath)
 	}
-
-	pkg.importDoc()
-}
-func importPathLink(pkgPath string) string {
-	if outfmt.Format != outfmt.Term {
-		return pkgPath
-	}
-	link := path.Join(outfmt.BaseURL, pkgPath)
-	return termenv.Hyperlink(link, pkgPath)
 }
 
 // valueSummary prints a one-line summary for each set of values and constants.
@@ -1230,7 +1147,6 @@ func (pkg *Package) printMethodDoc(symbol, method string) bool {
 			pkg.buf.Code()
 			pkg.Printf("type %s ", spec.Name)
 			inter.Methods.List, methods = methods, inter.Methods.List
-			pkg.buf.Code()
 			err := format.Node(&pkg.buf, pkg.fs, inter)
 			if err != nil {
 				log.Fatal(err)

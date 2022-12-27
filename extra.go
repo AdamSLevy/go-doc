@@ -1,53 +1,63 @@
 package main
 
 import (
-	"aslevy.com/go-doc/internal/astutil"
+	"go/ast"
+	"path"
+
 	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/outfmt"
+	"aslevy.com/go-doc/internal/workdir"
+	"github.com/muesli/termenv"
 )
 
-func (pkg *Package) importDoc() {
-	if godoc.NoImports || godoc.Short {
-		return
-	}
-	defer fnewlines(&pkg.preBuf, 2)
-	imports := astutil.NewPackageResolver(pkg.fs, pkg.pkg).BuildImports(pkg.imports, godoc.ShowStdlib)
-	imports.Render(&pkg.preBuf)
+type toTextOptions struct {
+	OutputFormat string
+	Syntaxes     []outfmt.Syntax
 }
 
-const (
-	delim = "```"
-	begin = "\n\n" + delim + "%s\n"
-	end   = "\n" + delim + "\n\n"
-)
-
-func (pb *pkgBuffer) Code() {
-	if !outfmt.IsRichMarkdown() {
-		return
+func newToTextOptions(opts ...toTextOption) (opt toTextOptions) {
+	opt.OutputFormat = outfmt.Format
+	for _, o := range opts {
+		o(&opt)
 	}
-	if pb.startsWith == "" {
-		pb.startsWith = "code"
-	}
-	if pb.inCodeBlock {
-		return
-	}
-	pb.inCodeBlock = true
-	lang := "go"
-	if outfmt.NoSyntax {
-		lang = "text"
-	}
-	pb.WriteString(delim + lang + "\n")
+	return
 }
-func (pb *pkgBuffer) Text() {
-	if !outfmt.IsRichMarkdown() {
+
+type toTextOption func(*toTextOptions)
+
+func withOutputFormat(format string) toTextOption {
+	return func(o *toTextOptions) {
+		o.OutputFormat = format
+	}
+}
+
+func withSyntaxes(langs ...outfmt.Syntax) toTextOption {
+	return func(o *toTextOptions) {
+		o.Syntaxes = append(o.Syntaxes, langs...)
+	}
+}
+func importPathLink(pkgPath string) string {
+	if outfmt.Format != outfmt.Term {
+		return pkgPath
+	}
+	link := path.Join(outfmt.BaseURL, pkgPath)
+	return termenv.Hyperlink(link, pkgPath)
+}
+
+var subs = []workdir.Sub{{
+	Env:  "GOROOT",
+	Path: buildCtx.GOROOT,
+}, {
+	Env:  "GOPATH",
+	Path: buildCtx.GOPATH,
+}}
+
+func (pkg *Package) emitLocation(node ast.Node) {
+	if godoc.NoLocation || godoc.Short {
 		return
 	}
-	if pb.startsWith == "" {
-		pb.startsWith = "text"
+	pos := pkg.fs.Position(node.Pos())
+	if pos.Filename != "" && pos.Line > 0 {
+		pkg.Printf("\n// %s +%d\n", workdir.Rel(pos.Filename, subs...), pos.Line)
 	}
-	if !pb.inCodeBlock {
-		return
-	}
-	pb.inCodeBlock = false
-	pb.WriteString(delim + "\n\n")
 }

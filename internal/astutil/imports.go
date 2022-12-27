@@ -33,9 +33,12 @@ func (files FileImports) Add(fileName, pkgName string, imp *ImportSpec) {
 	}
 	files[fileName] = Imports{pkgName: imp}
 }
+
+// Add the given import and return whether the name conflicts with an existing
+// import, if it also has a distinct import path.
 func (imports Imports) Add(pkgName string, imp *ImportSpec) bool {
-	if _, ok := imports[pkgName]; ok {
-		return false
+	if existing, ok := imports[pkgName]; ok {
+		return existing.Path == imp.Path
 	}
 	imports[pkgName] = imp
 	return true

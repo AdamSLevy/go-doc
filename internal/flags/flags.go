@@ -34,7 +34,6 @@ func addAllFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&godoc.ShowStdlib, "stdlib", false, "show imports for referenced stdlib packages")
 	fs.BoolVar(&godoc.NoLocation, "no-location", false, "do not show symbol location i.e. // /path/to/circle.go +314")
 
-	fs.StringVar(&cache.Dir, "cache-dir", cache.Dir, "Cache directory for faster package lookup and completion")
 	fs.BoolVar(&cache.Rebuild, "cache-rebuild", false, "Rebuild the cache")
 	fs.BoolVar(&cache.Disabled, "no-cache", false, "Do not use the cache")
 

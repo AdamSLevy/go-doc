@@ -2,6 +2,8 @@ package main
 
 import "aslevy.com/go-doc/internal/godoc"
 
+func (dirs *Dirs) PackageDirs() *PackageDirs { return (*PackageDirs)(dirs) }
+
 type PackageDirs Dirs
 
 func (d *PackageDirs) dirs() *Dirs { return (*Dirs)(d) }

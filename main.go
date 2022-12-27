@@ -59,7 +59,6 @@ import (
 	"aslevy.com/go-doc/internal/flags"
 	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/outfmt"
-	"aslevy.com/go-doc/internal/workdir"
 )
 
 // usage is a replacement usage function for the flags package.
@@ -81,6 +80,7 @@ func usage() {
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("doc: ")
+	dirsInit()
 	err := do(os.Stdout, flag.CommandLine, os.Args[1:])
 	if err != nil {
 		log.Fatal(err)
@@ -91,10 +91,6 @@ func main() {
 func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	flagSet.Usage = usage
 	args = flags.AddParse(flagSet, args...)
-
-	// dirsInit depends on cache.Dir, so it must be called after
-	// flags.AddParse.
-	dirsInit()
 
 	// Set up pager and output format writers.
 	wc := outfmt.Output(writer)
@@ -110,7 +106,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		if i > 0 && !more { // Ignore the "more" bit on the first iteration.
 			return failMessage(paths, symbol, method)
 		}
-		completer := completion.NewCompleter(writer, (*PackageDirs)(&dirs))
+		completer := completion.NewCompleter(writer, dirs.PackageDirs())
 		if buildPackage == nil {
 			if completion.Enabled {
 				completer.Complete(nil, userPath, sym)
@@ -206,7 +202,7 @@ func failMessage(paths []string, symbol, method string) error {
 // is rand.Float64, we must scan both crypto/rand and math/rand
 // to find the symbol, and the first call will return crypto/rand, true.
 func parseArgs(args []string) (pkg *build.Package, path, symbol string, more bool) {
-	wd, err := workdir.Get()
+	wd, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -302,21 +298,21 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 			// package.
 			symbol = arg[period:]
 		}
-		pkgName := arg[:period]
 		// Have we identified a package already?
-		pkg, err := build.Import(pkgName, wd, build.ImportComment)
+		pkg, err := build.Import(arg[0:period], wd, build.ImportComment)
 		if err == nil {
-			return pkg, pkgName, symbol, false
+			return pkg, arg[0:period], symbol, false
 		}
 		// See if we have the basename or tail of a package, as in json for encoding/json
 		// or ivy/value for robpike.io/ivy/value.
+		pkgName := arg[:period]
 		for {
 			path, ok := findNextPackage(pkgName)
 			if !ok {
 				break
 			}
 			if pkg, err = build.ImportDir(path, build.ImportComment); err == nil {
-				return pkg, pkgName, symbol, true
+				return pkg, arg[0:period], symbol, true
 			}
 		}
 		dirs.Reset() // Next iteration of for loop must scan all the directories again.
@@ -383,8 +379,6 @@ func importDir(dir string) *build.Package {
 // Both may be missing or the method may be missing.
 // If present, each must be a valid Go identifier.
 func parseSymbol(str string) (symbol, method string) {
-	// strip any leading dot left by parseFlags
-	str = strings.TrimPrefix(str, ".")
 	if str == "" {
 		return
 	}
@@ -402,8 +396,8 @@ func parseSymbol(str string) (symbol, method string) {
 }
 
 // isExported reports whether the name is an exported identifier.
-// If the unexported flag (-u) is true, isExported returns true because it
-// means that we treat the name as if it is exported.
+// If the unexported flag (-u) is true, isExported returns true because
+// it means that we treat the name as if it is exported.
 func isExported(name string) bool {
 	return godoc.Unexported || token.IsExported(name)
 }
