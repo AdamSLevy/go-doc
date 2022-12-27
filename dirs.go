@@ -112,6 +112,7 @@ func (d *Dirs) bfsWalkRoot(root Dir) {
 		return
 	}
 	module := d.cache.NewModule(root.importPath, root.dir)
+	defer d.cache.Save(module)
 
 	// this is the queue of directories to examine in this pass.
 	this := []string{}
@@ -176,8 +177,6 @@ func (d *Dirs) bfsWalkRoot(root Dir) {
 		}
 
 	}
-
-	d.cache.Save(module)
 }
 
 var testGOPATH = false // force GOPATH use for testing

@@ -27,7 +27,7 @@ var subs = []workdir.Sub{{
 }}
 
 func (pkg *Package) emitLocation(node ast.Node) {
-	if godoc.NoLocation || godoc.Short {
+	if godoc.NoLocation || short {
 		return
 	}
 	pos := pkg.fs.Position(node.Pos())

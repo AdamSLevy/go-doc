@@ -83,7 +83,7 @@ func (c Completer) completeSymbol(pkg godoc.PackageInfo, partialSymbol string) (
 			matched = c.suggestIfMatchPrefix(pkg, partialSymbol, fnc.Name, fnc.Doc, fnc.Decl, false, WithTag(TagTypes), WithDisplayIndent(true)) || matched
 		}
 
-		if !godoc.IsExported(typ.Name) {
+		if !c.IsExported(typ.Name) {
 			// Don't suggest the raw methods of unexported types.
 			continue
 		}
@@ -106,7 +106,7 @@ func (c Completer) completeMethodOrField(pkg godoc.PackageInfo, symbol, partial 
 	// Note that due to go doc's forgiving case rules, we may match
 	// more than one symbol.
 	for _, typ := range pkg.Doc().Types {
-		if !godoc.MatchPartial(symbol, typ.Name) {
+		if !c.MatchPartial(symbol, typ.Name) {
 			// Not a match for symbol, moving on...
 			continue
 		}
@@ -161,7 +161,7 @@ func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *d
 }
 
 func (c Completer) suggestIfMatchPrefix(pkg godoc.PackageInfo, partial, name, docs string, node ast.Node, useName bool, opts ...MatchOption) bool {
-	if !godoc.MatchPartial(partial, name) {
+	if !c.MatchPartial(partial, name) {
 		return false
 	}
 

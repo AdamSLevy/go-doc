@@ -9,10 +9,6 @@ package godoc
 import (
 	"go/ast"
 	"go/doc"
-	"go/token"
-	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
 // Package exposes the information about a package that is needed by the
@@ -39,68 +35,4 @@ type PackageInfo interface {
 	// FindTypeSpec returns the ast.TypeSpec within the declaration that
 	// defines the symbol. The name must match exactly.
 	FindTypeSpec(decl *ast.GenDecl, symbol string) *ast.TypeSpec
-}
-
-// IsExported reports whether the name is an exported identifier.
-// If the unexported flag (-u) is true, IsExported returns true because
-// it means that we treat the name as if it is exported.
-func IsExported(name string) bool {
-	return Unexported || token.IsExported(name)
-}
-
-// MatchPartial is like Match but also returns true if the user's symbol is
-// a prefix of the program's. An empty user string matches any program string.
-func MatchPartial(user, program string) bool {
-	return match(user, program, true)
-}
-
-// Match reports whether the user's symbol matches the program's.
-// A lower-case character in the user's string matches either case in the program's.
-// The program string must be exported.
-func Match(user, program string) bool {
-	return match(user, program, false)
-}
-
-// match reports whether the user's symbol matches the program's.
-// A lower-case character in the user's string matches either case in the program's.
-// The program string must be exported.
-//
-// If partial is true, the user's symbol may be a prefix of the program's. In
-// this case an empty user string matches any program string.
-func match(user, program string, partial bool) bool {
-	if !IsExported(program) {
-		return false
-	}
-	if MatchCase {
-		return program == user ||
-			(partial && strings.HasPrefix(program, user))
-	}
-	for _, u := range user {
-		// p is the first rune in program, or utf8.RuneError if empty or invalid.
-		// w is the index of the next rune in program, or 0 if empty or invalid.
-		p, w := utf8.DecodeRuneInString(program)
-		// remove the first rune from program
-		program = program[w:]
-		if u == p {
-			continue
-		}
-		if unicode.IsLower(u) && simpleFold(u) == simpleFold(p) {
-			continue
-		}
-		return false
-	}
-	// program will be empty if we have an exact match
-	return partial || program == ""
-}
-
-// simpleFold returns the minimum rune equivalent to r
-// under Unicode-defined simple case folding.
-func simpleFold(r rune) rune {
-	for {
-		r1 := unicode.SimpleFold(r)
-		if r1 <= r {
-			return r1 // wrapped around, found min
-		}
-		r = r1
-	}
 }

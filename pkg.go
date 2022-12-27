@@ -79,7 +79,7 @@ func (pb *pkgBuffer) packageClause() {
 	if !pb.printed {
 		pb.printed = true
 		// Only show package clause for commands if requested explicitly.
-		if pb.pkg.pkg.Name != "main" || godoc.ShowCmd {
+		if pb.pkg.pkg.Name != "main" || showCmd {
 			pb.pkg.packageClause()
 		}
 	}
@@ -271,7 +271,7 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 		pkg.imports.Find(node)
 		var arg any = node
 		var doc *ast.CommentGroup
-		if godoc.ShowSrc {
+		if showSrc {
 			// Need an extra little dance to get internal comments to appear.
 			arg = &printer.CommentedNode{
 				Node:     node,
@@ -298,7 +298,7 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 			log.Fatal(err)
 		}
 		pkg.emitLocation(node)
-		if comment != "" && !godoc.ShowSrc {
+		if comment != "" && !showSrc {
 			pkg.newlines(1)
 			pkg.buf.Text()
 
@@ -655,18 +655,18 @@ func (pkg *Package) allDoc() {
 func (pkg *Package) packageDoc() {
 	open.IfRequested(pkg.fs, pkg.pkg)
 	pkg.Printf("") // Trigger the package clause; we know the package exists.
-	if !godoc.Short {
+	if !short {
 		pkg.buf.Text()
 		pkg.ToText(&pkg.buf, pkg.doc.Doc, "", indent, outfmt.WithSyntaxes(outfmt.ParseSyntaxDirectives(pkg.file.Doc)...))
 		pkg.newlines(1)
 	}
 
-	if pkg.pkg.Name == "main" && !godoc.ShowCmd {
+	if pkg.pkg.Name == "main" && !showCmd {
 		// Show only package docs for commands.
 		return
 	}
 
-	if !godoc.Short {
+	if !short {
 		pkg.newlines(2) // Guarantee blank line before the components.
 	}
 
@@ -674,14 +674,14 @@ func (pkg *Package) packageDoc() {
 	pkg.valueSummary(pkg.doc.Vars, false)
 	pkg.funcSummary(pkg.doc.Funcs, false)
 	pkg.typeSummary()
-	if !godoc.Short {
+	if !short {
 		pkg.bugs()
 	}
 }
 
 // packageClause prints the package clause.
 func (pkg *Package) packageClause() {
-	if godoc.Short {
+	if short {
 		return
 	}
 	importPath := pkg.build.ImportComment
@@ -907,7 +907,7 @@ func (pkg *Package) valueDoc(value *doc.Value, printed map[*ast.GenDecl]bool) {
 		}
 
 		for _, ident := range vspec.Names {
-			if godoc.ShowSrc || isExported(ident.Name) {
+			if showSrc || isExported(ident.Name) {
 				if vspec.Type == nil && vspec.Values == nil && typ != nil {
 					// This a standalone identifier, as in the case of iota usage.
 					// Thus, assume the type comes from the previous type.
@@ -944,7 +944,7 @@ func (pkg *Package) typeDoc(typ *doc.Type) {
 	pkg.emit(typ.Doc, decl)
 	pkg.newlines(2)
 	// Show associated methods, constants, etc.
-	if godoc.ShowAll {
+	if showAll {
 		printed := make(map[*ast.GenDecl]bool)
 		// We can use append here to print consts, then vars. Ditto for funcs and methods.
 		values := typ.Consts
@@ -979,7 +979,7 @@ func (pkg *Package) typeDoc(typ *doc.Type) {
 // structs and methods from interfaces (unless the unexported flag is set or we
 // are asked to show the original source).
 func trimUnexportedElems(spec *ast.TypeSpec) {
-	if godoc.Unexported || godoc.ShowSrc {
+	if unexported || showSrc {
 		return
 	}
 	switch typ := spec.Type.(type) {
@@ -1215,7 +1215,7 @@ func match(user, program string) bool {
 	if !isExported(program) {
 		return false
 	}
-	if godoc.MatchCase {
+	if matchCase {
 		return user == program
 	}
 	for _, u := range user {

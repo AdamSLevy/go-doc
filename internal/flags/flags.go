@@ -23,13 +23,6 @@ var debug bool
 func addAllFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&debug, "debug", false, "Enable debug logging to stderr")
 
-	fs.BoolVar(&godoc.Unexported, "u", false, "show unexported symbols as well as exported")
-	fs.BoolVar(&godoc.MatchCase, "c", false, "symbol matching honors case (paths not affected)")
-	fs.BoolVar(&godoc.ShowAll, "all", false, "show all documentation for package")
-	fs.BoolVar(&godoc.ShowCmd, "cmd", false, "show symbols with package docs even if package is a command")
-	fs.BoolVar(&godoc.ShowSrc, "src", false, "show source code for symbol")
-	fs.BoolVar(&godoc.Short, "short", false, "one-line representation for each symbol")
-
 	fs.BoolVar(&godoc.NoImports, "no-imports", false, "do not show imports for referenced packages")
 	fs.BoolVar(&godoc.ShowStdlib, "stdlib", false, "show imports for referenced stdlib packages")
 	fs.BoolVar(&godoc.NoLocation, "no-location", false, "do not show symbol location i.e. // /path/to/circle.go +314")

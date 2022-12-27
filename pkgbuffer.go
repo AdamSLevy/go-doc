@@ -13,7 +13,7 @@ func (pkg *Package) flushImports() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if godoc.NoImports || godoc.Short {
+	if godoc.NoImports || short {
 		return
 	}
 	imports := astutil.NewPackageResolver(pkg.fs, pkg.pkg).BuildImports(pkg.imports, godoc.ShowStdlib)

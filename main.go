@@ -57,8 +57,16 @@ import (
 
 	"aslevy.com/go-doc/internal/completion"
 	"aslevy.com/go-doc/internal/flags"
-	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/outfmt"
+)
+
+var (
+	unexported bool // -u flag
+	matchCase  bool // -c flag
+	showAll    bool // -all flag
+	showCmd    bool // -cmd flag
+	showSrc    bool // -src flag
+	short      bool // -short flag
 )
 
 // usage is a replacement usage function for the flags package.
@@ -90,6 +98,14 @@ func main() {
 // do is the workhorse, broken out of main to make testing easier.
 func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	flagSet.Usage = usage
+	unexported = false
+	matchCase = false
+	flagSet.BoolVar(&unexported, "u", false, "show unexported symbols as well as exported")
+	flagSet.BoolVar(&matchCase, "c", false, "symbol matching honors case (paths not affected)")
+	flagSet.BoolVar(&showAll, "all", false, "show all documentation for package")
+	flagSet.BoolVar(&showCmd, "cmd", false, "show symbols with package docs even if package is a command")
+	flagSet.BoolVar(&showSrc, "src", false, "show source code for symbol")
+	flagSet.BoolVar(&short, "short", false, "one-line representation for each symbol")
 	args = flags.AddParse(flagSet, args...)
 
 	// Set up pager and output format writers.
@@ -106,7 +122,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		if i > 0 && !more { // Ignore the "more" bit on the first iteration.
 			return failMessage(paths, symbol, method)
 		}
-		completer := completion.NewCompleter(writer, dirs.PackageDirs())
+		completer := completion.NewCompleter(writer, dirs.PackageDirs(), unexported, matchCase)
 		if buildPackage == nil {
 			if completion.Enabled {
 				completer.Complete(nil, userPath, sym)
@@ -118,7 +134,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		// The builtin package needs special treatment: its symbols are lower
 		// case but we want to see them, always.
 		if buildPackage.ImportPath == "builtin" {
-			godoc.Unexported = true
+			unexported = true
 		}
 
 		pkg := parsePackage(writer, buildPackage, userPath)
@@ -147,7 +163,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		}()
 
 		// We have a package.
-		if godoc.ShowAll && symbol == "" {
+		if showAll && symbol == "" {
 			pkg.allDoc()
 			return
 		}
@@ -290,12 +306,8 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 			period = len(arg)
 		} else {
 			period += start
-			// We include the leading period in the symbol to
-			// disambiguate between a package path with no symbol,
-			// and a package path with a trailing dot and no
-			// symbol. This affects whether completion suggests
-			// packages, or suggests symbols within the specified
-			// package.
+			// Completion needs to know whether the user has typed
+			// a period or not, so we include it in the symbol.
 			symbol = arg[period:]
 		}
 		// Have we identified a package already?
@@ -399,7 +411,7 @@ func parseSymbol(str string) (symbol, method string) {
 // If the unexported flag (-u) is true, isExported returns true because
 // it means that we treat the name as if it is exported.
 func isExported(name string) bool {
-	return godoc.Unexported || token.IsExported(name)
+	return unexported || token.IsExported(name)
 }
 
 // findNextPackage returns the next full file name path that matches the
