@@ -11,7 +11,6 @@ import (
 	"go/ast"
 	"go/build"
 	"go/doc"
-	"go/doc/comment"
 	"go/format"
 	"go/parser"
 	"go/printer"
@@ -53,28 +52,12 @@ type Package struct {
 	insertImports int
 }
 
-func (p *Package) ToText(w io.Writer, text, prefix, codePrefix string, opts ...toTextOption) {
-	opt := newToTextOptions(opts...)
-
+func (p *Package) ToText(w io.Writer, text, prefix, codePrefix string, opts ...outfmt.ReformatOption) {
 	d := p.doc.Parser().Parse(text)
 	pr := p.doc.Printer()
-	pr.DocLinkBaseURL = outfmt.BaseURL
 	pr.TextPrefix = prefix
 	pr.TextCodePrefix = codePrefix
-	var data []byte
-	switch opt.OutputFormat {
-	case outfmt.HTML:
-		data = pr.HTML(d)
-	case outfmt.Markdown:
-		data = pr.Markdown(d)
-	case outfmt.RichMarkdown, outfmt.Term:
-		pr.HeadingLevel = 1
-		pr.HeadingID = func(h *comment.Heading) string { return "" }
-		data = outfmt.ReformatMarkdown(pr.Markdown(d))
-	default:
-		data = pr.Text(d)
-	}
-	w.Write(data)
+	w.Write(outfmt.Reformat(pr.Text(d), opts...))
 }
 
 // pkgBuffer is a wrapper for bytes.Buffer that prints a package clause the
@@ -262,13 +245,8 @@ func (pkg *Package) Printf(format string, args ...any) {
 }
 
 func (pkg *Package) flush() {
-	_, err := pkg.writer.Write(pkg.buf.Next(pkg.insertImports))
-	if err != nil {
-		log.Fatal(err)
-	}
 	pkg.flushImports()
-
-	_, err = pkg.writer.Write(pkg.buf.Bytes())
+	_, err := pkg.writer.Write(pkg.buf.Bytes())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -325,7 +303,7 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 			pkg.buf.Text()
 
 			syntaxes := outfmt.ParseSyntaxDirectives(doc)
-			pkg.ToText(&pkg.buf, comment, indent, indent+indent, withSyntaxes(syntaxes...))
+			pkg.ToText(&pkg.buf, comment, indent, indent+indent, outfmt.WithSyntaxes(syntaxes...))
 			pkg.newlines(2) // Blank line after comment to separate from next item.
 		} else {
 			pkg.newlines(1)
@@ -679,7 +657,7 @@ func (pkg *Package) packageDoc() {
 	pkg.Printf("") // Trigger the package clause; we know the package exists.
 	if !godoc.Short {
 		pkg.buf.Text()
-		pkg.ToText(&pkg.buf, pkg.doc.Doc, "", indent, withSyntaxes(outfmt.ParseSyntaxDirectives(pkg.file.Doc)...))
+		pkg.ToText(&pkg.buf, pkg.doc.Doc, "", indent, outfmt.WithSyntaxes(outfmt.ParseSyntaxDirectives(pkg.file.Doc)...))
 		pkg.newlines(1)
 	}
 
@@ -1195,7 +1173,7 @@ func (pkg *Package) printFieldDoc(symbol, fieldName string) bool {
 					// To present indented blocks in comments correctly, process the comment as
 					// a unit before adding the leading // to each line.
 					docBuf := new(bytes.Buffer)
-					pkg.ToText(docBuf, field.Doc.Text(), "", indent, withOutputFormat(outfmt.Text))
+					pkg.ToText(docBuf, field.Doc.Text(), "", indent, outfmt.WithDisabled())
 					scanner := bufio.NewScanner(docBuf)
 					for scanner.Scan() {
 						fmt.Fprintf(&pkg.buf, "%s// %s\n", indent, scanner.Bytes())

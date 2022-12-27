@@ -25,7 +25,7 @@ var (
 
 func IsRichMarkdown() bool {
 	switch Format {
-	case RichMarkdown, Term:
+	case Markdown, Term:
 		return true
 	}
 	return false

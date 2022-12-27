@@ -16,10 +16,37 @@ const (
 	indent = "    "
 )
 
-func ReformatMarkdown(data []byte, langs ...Syntax) []byte {
-	data = ReformatListBlocks(data)
-	data = ReformatTextBlocks(data)
-	return ReformatCodeBlocks(data, langs...)
+type ReformatOption func(*reformatOptions)
+
+func WithSyntaxes(langs ...Syntax) ReformatOption {
+	return func(o *reformatOptions) {
+		o.Syntaxes = append(o.Syntaxes, langs...)
+	}
+}
+func WithDisabled() ReformatOption {
+	return func(o *reformatOptions) {
+		o.Disabled = true
+	}
+}
+
+type reformatOptions struct {
+	Disabled bool
+	Syntaxes []Syntax
+}
+
+func newReformatOptions(opts ...ReformatOption) (opt reformatOptions) {
+	for _, o := range opts {
+		o(&opt)
+	}
+	return
+}
+
+func Reformat(data []byte, opts ...ReformatOption) []byte {
+	opt := newReformatOptions(opts...)
+	if !IsRichMarkdown() || opt.Disabled {
+		return data
+	}
+	return ReformatCodeBlocks(data, opt.Syntaxes...)
 }
 
 // codeBlocks matches simple code blocks in Markdown as rendered by
@@ -28,7 +55,7 @@ func ReformatMarkdown(data []byte, langs ...Syntax) []byte {
 //
 // This regex can be viewed and better understood here:
 // https://regex101.com/r/1gbLMe/2
-var codeBlocks = regexp.MustCompile(`(?:\A|\n\n)((?:\t.*?\n+)+)(?:\n|\z)`)
+var codeBlocks = regexp.MustCompile(`(?:\A|\n\n)((?:    .*?\n+)+)(?:\n|\z)`)
 
 // ReformatCodeBlocks reformats markdown code blocks from:
 //

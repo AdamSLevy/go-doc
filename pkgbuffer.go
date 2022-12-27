@@ -1,12 +1,18 @@
 package main
 
 import (
+	"log"
+
 	"aslevy.com/go-doc/internal/astutil"
 	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/outfmt"
 )
 
 func (pkg *Package) flushImports() {
+	_, err := pkg.writer.Write(pkg.buf.Next(pkg.insertImports))
+	if err != nil {
+		log.Fatal(err)
+	}
 	if godoc.NoImports || godoc.Short {
 		return
 	}

@@ -9,6 +9,7 @@ package godoc
 import (
 	"go/ast"
 	"go/doc"
+	"go/token"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -43,7 +44,9 @@ type PackageInfo interface {
 // IsExported reports whether the name is an exported identifier.
 // If the unexported flag (-u) is true, IsExported returns true because
 // it means that we treat the name as if it is exported.
-var IsExported func(name string) bool
+func IsExported(name string) bool {
+	return Unexported || token.IsExported(name)
+}
 
 // MatchPartial is like Match but also returns true if the user's symbol is
 // a prefix of the program's. An empty user string matches any program string.

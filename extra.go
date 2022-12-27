@@ -10,32 +10,6 @@ import (
 	"github.com/muesli/termenv"
 )
 
-type toTextOptions struct {
-	OutputFormat string
-	Syntaxes     []outfmt.Syntax
-}
-
-func newToTextOptions(opts ...toTextOption) (opt toTextOptions) {
-	opt.OutputFormat = outfmt.Format
-	for _, o := range opts {
-		o(&opt)
-	}
-	return
-}
-
-type toTextOption func(*toTextOptions)
-
-func withOutputFormat(format string) toTextOption {
-	return func(o *toTextOptions) {
-		o.OutputFormat = format
-	}
-}
-
-func withSyntaxes(langs ...outfmt.Syntax) toTextOption {
-	return func(o *toTextOptions) {
-		o.Syntaxes = append(o.Syntaxes, langs...)
-	}
-}
 func importPathLink(pkgPath string) string {
 	if outfmt.Format != outfmt.Term {
 		return pkgPath
