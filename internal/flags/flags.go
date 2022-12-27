@@ -7,8 +7,6 @@ package flags
 import (
 	"flag"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"aslevy.com/go-doc/internal/cache"
 	"aslevy.com/go-doc/internal/completion"
@@ -36,7 +34,7 @@ func addAllFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&godoc.ShowStdlib, "stdlib", false, "show imports for referenced stdlib packages")
 	fs.BoolVar(&godoc.NoLocation, "no-location", false, "do not show symbol location i.e. // /path/to/circle.go +314")
 
-	fs.StringVar(&cache.Dir, "cache-dir", getCacheDir(), "Cache directory for faster package lookup and completion")
+	fs.StringVar(&cache.Dir, "cache-dir", cache.Dir, "Cache directory for faster package lookup and completion")
 	fs.BoolVar(&cache.Rebuild, "cache-rebuild", false, "Rebuild the cache")
 	fs.BoolVar(&cache.Disabled, "no-cache", false, "Do not use the cache")
 
@@ -66,13 +64,6 @@ func addCompletionFlags(fs *flag.FlagSet, args ...string) []string {
 	fs.BoolVar(&completion.ShortPath, "pkgs-short", false, "Complete packages to the shortest resolvable paths instead of full import paths")
 
 	return args[1:]
-}
-
-func getCacheDir() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".cache", "go-doc-completion")
-	}
-	return ""
 }
 
 type fmtFlag outfmt.Mode         // implements flag.Value

@@ -9,7 +9,6 @@ package godoc
 type Dir struct {
 	ImportPath string // import path for that dir
 	Dir        string // file system directory
-	InModule   bool
 }
 
 // PackageDirs exposes the functionality of the cmd/go-doc.Dirs type that is

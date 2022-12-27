@@ -110,7 +110,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		if i > 0 && !more { // Ignore the "more" bit on the first iteration.
 			return failMessage(paths, symbol, method)
 		}
-		completer := completion.NewCompleter(writer, &dirs)
+		completer := completion.NewCompleter(writer, (*PackageDirs)(&dirs))
 		if buildPackage == nil {
 			if completion.Enabled {
 				completer.Complete(nil, userPath, sym)
@@ -428,8 +428,8 @@ func findNextPackage(pkg string) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		if d.ImportPath == pkg || strings.HasSuffix(d.ImportPath, pkgSuffix) {
-			return d.Dir, true
+		if d.importPath == pkg || strings.HasSuffix(d.importPath, pkgSuffix) {
+			return d.dir, true
 		}
 	}
 }

@@ -1,9 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"os/exec"
-
 	"aslevy.com/go-doc/internal/astutil"
 	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/outfmt"
@@ -53,12 +50,4 @@ func (pb *pkgBuffer) Text() {
 	}
 	pb.inCodeBlock = false
 	pb.WriteString(delim + "\n\n")
-}
-
-func goModCache() string { return goEnv("GOMODCACHE") }
-func goVersion() string  { return goEnv("GOVERSION") }
-
-func goEnv(envVar string) string {
-	stdout, _ := exec.Command(goCmd(), "env", envVar).Output()
-	return string(bytes.TrimSpace(stdout))
 }

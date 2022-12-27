@@ -792,16 +792,16 @@ func (pkg *Package) packageClause() {
 	// Either way, we don't know it now, and it's cheap to (re)compute it.
 	if usingModules {
 		for _, root := range codeRoots() {
-			if pkg.build.Dir == root.Dir {
-				importPath = root.ImportPath
+			if pkg.build.Dir == root.dir {
+				importPath = root.importPath
 				break
 			}
-			if strings.HasPrefix(pkg.build.Dir, root.Dir+string(filepath.Separator)) {
-				suffix := filepath.ToSlash(pkg.build.Dir[len(root.Dir)+1:])
-				if root.ImportPath == "" {
+			if strings.HasPrefix(pkg.build.Dir, root.dir+string(filepath.Separator)) {
+				suffix := filepath.ToSlash(pkg.build.Dir[len(root.dir)+1:])
+				if root.importPath == "" {
 					importPath = suffix
 				} else {
-					importPath = root.ImportPath + "/" + suffix
+					importPath = root.importPath + "/" + suffix
 				}
 				break
 			}

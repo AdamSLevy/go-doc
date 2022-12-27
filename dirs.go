@@ -18,17 +18,15 @@ import (
 	"golang.org/x/mod/semver"
 
 	"aslevy.com/go-doc/internal/cache"
-	. "aslevy.com/go-doc/internal/godoc"
 )
 
-// // A Dir describes a directory holding code by specifying
-// // the expected import path and the file system directory.
-// type Dir struct {
-//        importPath string // import path for that dir
-//        dir        string // file system directory
-//        inModule   bool
-// }
-// Dir now lives in internal/godoc/dirs.go
+// A Dir describes a directory holding code by specifying
+// the expected import path and the file system directory.
+type Dir struct {
+	importPath string // import path for that dir
+	dir        string // file system directory
+	inModule   bool
+}
 
 // Dirs is a structure for scanning the directory tree.
 // Its Next method returns the next Go source directory it finds.
@@ -39,7 +37,7 @@ type Dirs struct {
 	hist   []Dir    // History of reported Dirs.
 	offset int      // Counter for Next.
 
-	modules cache.Modules
+	cache *cache.Cache
 }
 
 var dirs Dirs
@@ -62,12 +60,7 @@ func dirsInit(extra ...Dir) {
 	dirs.hist = append(dirs.hist, extra...)
 	dirs.scan = make(chan Dir)
 
-	dirs.modules.GoModCache = goModCache()
-	dirs.modules.GoVersion = goVersion()
-	dirs.modules.CacheDir = cache.Dir
-	if home, err := os.UserHomeDir(); err == nil {
-		dirs.modules.CacheDir = filepath.Join(home, ".cache", "go-doc")
-	}
+	dirs.cache = cache.New(goCmd())
 
 	go dirs.walk(codeRoots())
 }
@@ -113,29 +106,17 @@ func (d *Dirs) walk(roots []Dir) {
 // bfsWalkRoot walks a single directory hierarchy in breadth-first lexical order.
 // Each Go source directory it finds is delivered on d.scan.
 func (d *Dirs) bfsWalkRoot(root Dir) {
-	root.Dir = filepath.Clean(root.Dir) // because filepath.Join will do it anyway
+	root.dir = filepath.Clean(root.dir) // because filepath.Join will do it anyway
 
-	if !usingVendor && !cache.Disabled && !cache.Rebuild {
-		// TODO: make this work for vendored modules
-		if module, err := d.modules.Load(root.ImportPath, root.Dir); err == nil {
-			// log.Printf("loaded cache for module %q in %q", root.importPath, root.dir)
-			for _, pkg := range module.Packages {
-				d.scan <- Dir{pkg.ImportPath, pkg.Dir, root.InModule}
-			}
-			if len(module.Packages) > 0 {
-				return
-			}
-			// No packages found in cache, so fall through to scan
-			// the directory.
-		}
+	if err := d.cache.Load(root.importPath, root.dir, dirs.registerPackage); err == nil {
+		return
 	}
-
-	module := cache.NewModule(root.ImportPath, root.Dir)
+	module := d.cache.NewModule(root.importPath, root.dir)
 
 	// this is the queue of directories to examine in this pass.
 	this := []string{}
 	// next is the queue of directories to examine in the next pass.
-	next := []string{root.Dir}
+	next := []string{root.dir}
 
 	for len(next) > 0 {
 		this, next = next, this[0:0]
@@ -169,7 +150,7 @@ func (d *Dirs) bfsWalkRoot(root Dir) {
 					continue
 				}
 				// When in a module, ignore vendor directories and stop at module boundaries.
-				if root.InModule {
+				if root.inModule {
 					if name == "vendor" {
 						continue
 					}
@@ -182,27 +163,21 @@ func (d *Dirs) bfsWalkRoot(root Dir) {
 			}
 			if hasGoFiles {
 				// It's a candidate.
-				importPath := root.ImportPath
-				if len(dir) > len(root.Dir) {
+				importPath := root.importPath
+				if len(dir) > len(root.dir) {
 					if importPath != "" {
 						importPath += "/"
 					}
-					importPath += filepath.ToSlash(dir[len(root.Dir)+1:])
+					importPath += filepath.ToSlash(dir[len(root.dir)+1:])
 				}
-				if !usingVendor && !cache.Disabled {
-					module.Packages = append(module.Packages, cache.Package{ImportPath: importPath, Dir: dir})
-				}
-				d.scan <- Dir{importPath, dir, root.InModule}
+				d.scan <- Dir{importPath, dir, root.inModule}
+				module.AddPackage(importPath, dir)
 			}
 		}
 
 	}
 
-	if !usingVendor && len(module.Packages) > 0 && !cache.Disabled {
-		if err := d.modules.Save(&module); err != nil {
-			// log.Printf("failed to save cache for module %q in %q: %v", root.importPath, root.dir, err)
-		}
-	}
+	d.cache.Save(module)
 }
 
 var testGOPATH = false // force GOPATH use for testing
@@ -235,8 +210,8 @@ func findCodeRoots() []Dir {
 		usingModules = len(gomod) > 0
 		if usingModules && buildCtx.GOROOT != "" {
 			list = append(list,
-				Dir{Dir: filepath.Join(buildCtx.GOROOT, "src"), InModule: true},
-				Dir{ImportPath: "cmd", Dir: filepath.Join(buildCtx.GOROOT, "src", "cmd"), InModule: true})
+				Dir{dir: filepath.Join(buildCtx.GOROOT, "src"), inModule: true},
+				Dir{importPath: "cmd", dir: filepath.Join(buildCtx.GOROOT, "src", "cmd"), inModule: true})
 		}
 
 		if gomod == os.DevNull {
@@ -250,10 +225,10 @@ func findCodeRoots() []Dir {
 
 	if !usingModules {
 		if buildCtx.GOROOT != "" {
-			list = append(list, Dir{Dir: filepath.Join(buildCtx.GOROOT, "src")})
+			list = append(list, Dir{dir: filepath.Join(buildCtx.GOROOT, "src")})
 		}
 		for _, root := range splitGopath() {
-			list = append(list, Dir{Dir: filepath.Join(root, "src")})
+			list = append(list, Dir{dir: filepath.Join(root, "src")})
 		}
 		return list
 	}
@@ -268,13 +243,12 @@ func findCodeRoots() []Dir {
 		return list
 	}
 	if vendorEnabled {
-		usingVendor = true
 		// Add the vendor directory to the search path ahead of "std".
 		// That way, if the main module *is* "std", we will identify the path
 		// without the "vendor/" prefix before the one with that prefix.
-		list = append([]Dir{{Dir: filepath.Join(mainMod.Dir, "vendor"), InModule: false}}, list...)
+		list = append([]Dir{{dir: filepath.Join(mainMod.Dir, "vendor"), inModule: false}}, list...)
 		if mainMod.Path != "std" {
-			list = append(list, Dir{ImportPath: mainMod.Path, Dir: mainMod.Dir, InModule: true})
+			list = append(list, Dir{importPath: mainMod.Path, dir: mainMod.Dir, inModule: true})
 		}
 		return list
 	}
@@ -285,7 +259,7 @@ func findCodeRoots() []Dir {
 	for _, line := range strings.Split(string(out), "\n") {
 		path, dir, _ := strings.Cut(line, "\t")
 		if dir != "" {
-			list = append(list, Dir{ImportPath: path, Dir: dir, InModule: true})
+			list = append(list, Dir{importPath: path, dir: dir, inModule: true})
 		}
 	}
 
@@ -299,8 +273,6 @@ type moduleJSON struct {
 }
 
 var modFlagRegexp = regexp.MustCompile(`-mod[ =](\w+)`)
-
-var usingVendor bool
 
 // vendorEnabled indicates if vendoring is enabled.
 // Inspired by setDefaultBuildMod in modload/init.go
