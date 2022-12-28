@@ -63,6 +63,8 @@ func (pkg *Package) emitLocation(node ast.Node) {
 }
 
 func (pkg *Package) flushImports() {
+	// Write the buffer up to the point where we might need to insert the
+	// import block.
 	_, err := pkg.writer.Write(pkg.buf.Next(pkg.insertImports))
 	if err != nil {
 		log.Fatal(err)
@@ -70,12 +72,15 @@ func (pkg *Package) flushImports() {
 	if godoc.NoImports {
 		return
 	}
-	astutil.NewPackageResolver(pkg.fs, pkg.pkg).
-		BuildImports(pkg.imports, godoc.ShowStdlib).
-		Render(pkg.writer)
+	// Write the import block.
+	if err := astutil.NewPackageResolver(pkg.fs, pkg.pkg).
+		BuildImports(pkg.pkgRefs, godoc.ShowStdlib).
+		Render(pkg.writer); err != nil {
+		log.Fatal(err)
+	}
 }
 
-const codeDelim = "```"
+const codeDelim = outfmt.CodeBlockDelim
 
 func (pb *pkgBuffer) Code() {
 	if !outfmt.IsRichMarkdown() ||
@@ -141,7 +146,7 @@ func (pkg *Package) oneLineFieldList(list *ast.FieldList, depth int, opts ...god
 		if o.PkgRefs != nil {
 			pkgRefs = make(astutil.PackageReferences)
 		}
-		param := pkg.oneLineField(field, depth, godoc.WithOpts(opts...), godoc.WithImports(pkgRefs))
+		param := pkg.oneLineField(field, depth, godoc.WithOpts(opts...), godoc.WithPkgRefs(pkgRefs))
 		params = append(params, param)
 
 		paramsLen += len(param) + len(", ")

@@ -64,7 +64,7 @@ func WithValueName(name string) OneLineNodeOption {
 	}
 }
 
-func WithImports(pkgRefs astutil.PackageReferences) OneLineNodeOption {
+func WithPkgRefs(pkgRefs astutil.PackageReferences) OneLineNodeOption {
 	return func(o *OneLineNodeOptions) {
 		o.PkgRefs = pkgRefs
 	}

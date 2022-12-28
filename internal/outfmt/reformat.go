@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	delim  = "```"
-	begin  = "\n\n" + delim + "%s\n"
-	end    = "\n" + delim + "\n\n"
-	indent = "    "
+	CodeBlockDelim = "```"
+	begin          = "\n\n" + CodeBlockDelim + "%s\n"
+	end            = "\n" + CodeBlockDelim + "\n\n"
+	indent         = "    "
 )
 
 type ReformatOption func(*reformatOptions)

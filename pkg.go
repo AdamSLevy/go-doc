@@ -48,7 +48,7 @@ type Package struct {
 	fs          *token.FileSet      // Needed for printing.
 	buf         pkgBuffer
 
-	imports       astutil.PackageReferences
+	pkgRefs       astutil.PackageReferences
 	insertImports int
 }
 
@@ -239,7 +239,7 @@ func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Packag
 	}
 	p.buf.pkg = p
 	if !godoc.NoImports {
-		p.imports = make(astutil.PackageReferences)
+		p.pkgRefs = make(astutil.PackageReferences)
 	}
 	return p
 }
@@ -272,7 +272,7 @@ func (pkg *Package) newlines(n int) {
 func (pkg *Package) emit(comment string, node ast.Node) {
 	if node != nil {
 		open.IfRequested(pkg.fs, node)
-		pkg.imports.Find(node)
+		pkg.pkgRefs.Find(node)
 		var arg any = node
 		if showSrc {
 			// Need an extra little dance to get internal comments to appear.
@@ -305,7 +305,7 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 func (pkg *Package) oneLineNode(node ast.Node, opts ...godoc.OneLineNodeOption) (line string) {
 	const maxDepth = 10
 	pkg.buf.Code()
-	return pkg.oneLineNodeDepth(node, maxDepth, godoc.WithImports(pkg.imports), godoc.WithOpts(opts...))
+	return pkg.oneLineNodeDepth(node, maxDepth, godoc.WithPkgRefs(pkg.pkgRefs), godoc.WithOpts(opts...))
 }
 
 // oneLineNodeDepth returns a one-line summary of the given input node.
@@ -348,7 +348,7 @@ func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int, opts ...godoc.One
 		if o.PkgRefs != nil {
 			pkgRefs = make(astutil.PackageReferences)
 		}
-		opts := append(opts, godoc.WithImports(pkgRefs))
+		opts := append(opts, godoc.WithPkgRefs(pkgRefs))
 		for _, spec := range n.Specs {
 			valueSpec := spec.(*ast.ValueSpec) // Must succeed; we can't mix types in one GenDecl.
 
@@ -467,7 +467,7 @@ func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int, opts ...godoc.One
 			if o.PkgRefs != nil {
 				pkgRefs = make(astutil.PackageReferences)
 			}
-			opts := append(opts, godoc.WithImports(pkgRefs))
+			opts := append(opts, godoc.WithPkgRefs(pkgRefs))
 			line := pkg.oneLineNodeDepth(arg, depth, opts...)
 			args = append(args, line)
 			argsLen += len(line) + len(", ")
