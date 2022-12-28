@@ -27,11 +27,12 @@ var subs = []workdir.Sub{{
 }}
 
 func (pkg *Package) emitLocation(node ast.Node) {
-	if godoc.NoLocation || short {
+	if godoc.NoLocation || short || showAll {
 		return
 	}
 	pos := pkg.fs.Position(node.Pos())
 	if pos.Filename != "" && pos.Line > 0 {
-		pkg.Printf("\n// %s +%d\n", workdir.Rel(pos.Filename, subs...), pos.Line)
+		pkg.newlines(1)
+		pkg.Printf("// %s +%d\n", workdir.Rel(pos.Filename, subs...), pos.Line)
 	}
 }
