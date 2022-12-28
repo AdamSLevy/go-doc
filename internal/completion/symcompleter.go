@@ -165,11 +165,11 @@ func (c Completer) suggestIfMatchPrefix(pkg godoc.PackageInfo, partial, name, do
 		return false
 	}
 
-	var olnName string
+	var olnOpts []godoc.OneLineNodeOption
 	if useName {
-		olnName = name
+		olnOpts = append(olnOpts, godoc.WithValueName(name))
 	}
-	display := pkg.OneLineNode(node, olnName)
+	display := pkg.OneLineNode(node, olnOpts...)
 
 	docs = firstSentence(docs)
 	docs = strings.TrimPrefix(docs, name+" ")

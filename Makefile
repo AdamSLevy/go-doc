@@ -20,7 +20,7 @@ install:
 diff:
 	git diff --stat official-go-doc -- main.go dirs.go pkg.go
 	@echo
-	git diff --stat official-go-doc -- *_extra.go
+	git diff --stat official-go-doc -- *extra.go
 
 diff-all:
 	git diff -p official-go-doc -- main.go dirs.go pkg.go

@@ -1,8 +1,11 @@
 package astutil
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
+	"sort"
+	"strings"
 )
 
 // PackageReferences maps package names to the positions the package name found
@@ -16,6 +19,15 @@ import (
 // actual import path.
 type PackageReferences map[PackageName][]token.Pos
 
+func (p PackageReferences) String() (s string) {
+	pkgs := make([]string, 0, len(p))
+	for pkgName := range p {
+		pkgs = append(pkgs, fmt.Sprintf("%q", pkgName))
+	}
+	sort.Strings(pkgs)
+	return strings.Join(pkgs, "\n")
+}
+
 // FindPackageReferences finds any external package references in the AST of
 // the node.
 func FindPackageReferences(node ast.Node) PackageReferences {
@@ -25,19 +37,17 @@ func FindPackageReferences(node ast.Node) PackageReferences {
 }
 
 func (pkgRefs PackageReferences) Find(node ast.Node) {
+	if pkgRefs == nil {
+		return
+	}
 	p := pkgRefFinder{pkgRefs: pkgRefs}
 	ast.Walk(p, node)
 }
 
-func Merge(a, b PackageReferences) PackageReferences {
-	long, short := a, b
-	if len(short) > len(long) {
-		long, short = short, long
+func (pkgRefs PackageReferences) Merge(other PackageReferences) {
+	for pkgName, pos := range other {
+		pkgRefs.Add(pkgName, pos...)
 	}
-	for k, v := range short {
-		long.Add(k, v...)
-	}
-	return long
 }
 
 func (pkgRefs PackageReferences) Add(pkgName string, pos ...token.Pos) {

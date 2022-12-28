@@ -19,11 +19,20 @@ const (
 
 type ReformatOption func(*reformatOptions)
 
+func WithOpts(opts ...ReformatOption) ReformatOption {
+	return func(o *reformatOptions) {
+		for _, opt := range opts {
+			opt(o)
+		}
+	}
+}
+
 func WithSyntaxes(langs ...Syntax) ReformatOption {
 	return func(o *reformatOptions) {
 		o.Syntaxes = append(o.Syntaxes, langs...)
 	}
 }
+
 func WithDisabled() ReformatOption {
 	return func(o *reformatOptions) {
 		o.Disabled = true
@@ -36,9 +45,7 @@ type reformatOptions struct {
 }
 
 func newReformatOptions(opts ...ReformatOption) (o reformatOptions) {
-	for _, opt := range opts {
-		opt(&o)
-	}
+	WithOpts(opts...)(&o)
 	return
 }
 

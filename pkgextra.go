@@ -120,8 +120,8 @@ func (pkg *Package) Doc() *doc.Package { return pkg.doc }
 // declaration.
 //
 // Only the first valName is considered.
-func (pkg *Package) OneLineNode(node ast.Node, name ...string) string {
-	return pkg.oneLineNode(node, name...)
+func (pkg *Package) OneLineNode(node ast.Node, opts ...godoc.OneLineNodeOption) string {
+	return pkg.oneLineNode(node, opts...)
 }
 func (pkg *Package) FindTypeSpec(decl *ast.GenDecl, symbol string) *ast.TypeSpec {
 	return pkg.findTypeSpec(decl, symbol)
@@ -129,19 +129,26 @@ func (pkg *Package) FindTypeSpec(decl *ast.GenDecl, symbol string) *ast.TypeSpec
 func (pkg *Package) IsTypedValue(value *doc.Value) bool { return pkg.typedValue[value] }
 func (pkg *Package) IsConstructor(fnc *doc.Func) bool   { return pkg.constructor[fnc] }
 
-type OneLineNodeOption func(*OneLineNodeOptions)
-type OneLineNodeOptions struct {
-	valueName string
-	pkgRefs   *astutil.PackageReferences
-}
+func (pkg *Package) oneLineFieldList(list *ast.FieldList, depth int, opts ...godoc.OneLineNodeOption) ([]string, bool) {
+	o := godoc.NewOneLineNodeOptions(opts...)
+	var params []string
+	var paramsLen int
+	needParens := len(list.List) > 1
+	for _, field := range list.List {
+		needParens = needParens || len(field.Names) > 0
 
-func WithValueName(name string) OneLineNodeOption {
-	return func(o *OneLineNodeOptions) {
-		o.valueName = name
+		var pkgRefs astutil.PackageReferences
+		if o.PkgRefs != nil {
+			pkgRefs = make(astutil.PackageReferences)
+		}
+		param := pkg.oneLineField(field, depth, godoc.WithOpts(opts...), godoc.WithImports(pkgRefs))
+		params = append(params, param)
+
+		paramsLen += len(param) + len(", ")
+		if paramsLen > punchedCardWidth {
+			break
+		}
+		o.PkgRefs.Merge(pkgRefs)
 	}
-}
-func WithPackageReferences(pkgRefs *astutil.PackageReferences) OneLineNodeOption {
-	return func(o *OneLineNodeOptions) {
-		o.pkgRefs = pkgRefs
-	}
+	return params, needParens
 }

@@ -54,10 +54,9 @@ func (m Match) String() string {
 	return strings.Join(fields, ":")
 }
 
-func NewMatch(match string, opts ...MatchOption) Match {
-	m := Match{Match: match}
+func NewMatch(match string, opts ...MatchOption) (m Match) {
 	WithOpts(opts...)(&m)
-	return m
+	return
 }
 
 type MatchOption func(*Match)

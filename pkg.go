@@ -237,8 +237,10 @@ func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Packag
 		build:       pkg,
 		fs:          fset,
 	}
-	p.imports = make(astutil.PackageReferences)
 	p.buf.pkg = p
+	if !godoc.NoImports {
+		p.imports = make(astutil.PackageReferences)
+	}
 	return p
 }
 
@@ -289,8 +291,8 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 		pkg.emitLocation(node)
 		if comment != "" && !showSrc {
 			syntaxes := outfmt.ParseSyntaxDirectives(doc)
-			pkg.buf.Text()
 			pkg.newlines(1)
+			pkg.buf.Text()
 			pkg.ToText(&pkg.buf, comment, indent, indent+indent, outfmt.WithSyntaxes(syntaxes...))
 			pkg.newlines(2) // Blank line after comment to separate from next item.
 		} else {
@@ -300,207 +302,187 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 }
 
 // oneLineNode returns a one-line summary of the given input node.
-//
-// If node is an *ast.GenDecl, and a non-empty valName is given, the summary
-// will be of the value (const or var) with that name. Only the first valName
-// is considered.
-//
-// If no valName is given, the summary will be of the first exported value in
-// the node.
-func (pkg *Package) oneLineNode(node ast.Node, valName ...string) string {
+func (pkg *Package) oneLineNode(node ast.Node, opts ...godoc.OneLineNodeOption) (line string) {
 	const maxDepth = 10
-
-	// We only want the imports of this node if we actually print
-	// something. So we save the current imports and create an empty
-	// imports map for this node.
-
 	pkg.buf.Code()
-	line, pkgRefs := pkg.oneLineNodeDepth(node, maxDepth, valName...)
-	if line != "" && !godoc.NoImports {
-		pkg.imports = astutil.Merge(pkg.imports, pkgRefs)
-	}
-	return line
+	return pkg.oneLineNodeDepth(node, maxDepth, godoc.WithImports(pkg.imports), godoc.WithOpts(opts...))
 }
 
 // oneLineNodeDepth returns a one-line summary of the given input node.
 // The depth specifies the maximum depth when traversing the AST.
-func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int, valName ...string) (string, astutil.PackageReferences) {
+func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int, opts ...godoc.OneLineNodeOption) string {
 	const dotDotDot = "..."
 	if depth == 0 {
-		return dotDotDot, nil
+		return dotDotDot
 	}
 	depth--
 
-	var name string
-	if len(valName) > 0 {
-		name = valName[0]
-	}
+	o := godoc.NewOneLineNodeOptions(opts...)
 
-	var pkgRefs astutil.PackageReferences
 	switch n := node.(type) {
 	case nil:
-		return "", nil
+		return ""
 
 	case *ast.GenDecl:
 		// Formats const and var declarations.
 		trailer := ""
+		name := o.ValueName
 		if name == "" && len(n.Specs) > 1 {
 			trailer = " " + dotDotDot
 		}
 
+		// Official go doc does not search past the first name in
+		// a value spec, skipping the spec if the first name is not
+		// exported.
+		//
+		// It's rare but possible to have a value spec with a mix of
+		// exported and unexported names, in any order.
+		//
+		// Instead we search all names in the value spec until we find
+		// the first exported var exactly matching name, if not empty,
+		// and otherwise just the first exported ident.Name.
+
 		// Find the first relevant spec.
 		typ := ""
+		var pkgRefs astutil.PackageReferences
+		if o.PkgRefs != nil {
+			pkgRefs = make(astutil.PackageReferences)
+		}
+		opts := append(opts, godoc.WithImports(pkgRefs))
 		for _, spec := range n.Specs {
 			valueSpec := spec.(*ast.ValueSpec) // Must succeed; we can't mix types in one GenDecl.
 
 			// The type name may carry over from a previous specification in the
 			// case of constants and iota.
 			if valueSpec.Type != nil {
-				line, refs := pkg.oneLineNodeDepth(valueSpec.Type, depth)
+				line := pkg.oneLineNodeDepth(valueSpec.Type, depth, opts...)
 				typ = fmt.Sprintf(" %s", line)
-				pkgRefs = astutil.Merge(pkgRefs, refs)
 			} else if len(valueSpec.Values) > 0 {
 				typ = ""
 			}
 
-			// Official go doc does not search past the first name
-			// in a value spec, skipping the spec if the first name
-			// is not exported.
-			//
-			// It's rare but possible to have a value spec with
-			// a mix of exported and unexported names, in any
-			// order.
-			//
-			// Instead we search all names in the value spec until
-			// we find the first exported var exactly matching
-			// name, if not empty, and otherwise just the first
-			// exported ident.Name.
 			for i, ident := range valueSpec.Names {
 				if !isExported(ident.Name) || (name != "" && ident.Name != name) {
 					continue
 				}
 				val := ""
 				if i < len(valueSpec.Values) && valueSpec.Values[i] != nil {
-					line, refs := pkg.oneLineNodeDepth(valueSpec.Values[i], depth)
+					line := pkg.oneLineNodeDepth(valueSpec.Values[i], depth, opts...)
 					val = fmt.Sprintf(" = %s", line)
-					pkgRefs = astutil.Merge(pkgRefs, refs)
 				}
-				return fmt.Sprintf("%s %s%s%s%s", n.Tok, valueSpec.Names[i], typ, val, trailer), pkgRefs
+				o.PkgRefs.Merge(pkgRefs)
+				return fmt.Sprintf("%s %s%s%s%s", n.Tok, valueSpec.Names[i], typ, val, trailer)
 			}
 		}
-		return "", nil
+		return ""
 
 	case *ast.FuncDecl:
 		// Formats func declarations.
 		name := n.Name.Name
-		recv, pkgRefs := pkg.oneLineNodeDepth(n.Recv, depth)
+		recv := pkg.oneLineNodeDepth(n.Recv, depth, opts...)
 		if len(recv) > 0 {
 			recv = "(" + recv + ") "
 		}
-		fnc, refs := pkg.oneLineNodeDepth(n.Type, depth)
+		fnc := pkg.oneLineNodeDepth(n.Type, depth, opts...)
 		fnc = strings.TrimPrefix(fnc, "func")
-		return fmt.Sprintf("func %s%s%s", recv, name, fnc), astutil.Merge(pkgRefs, refs)
+		return fmt.Sprintf("func %s%s%s", recv, name, fnc)
 
 	case *ast.TypeSpec:
 		sep := " "
 		if n.Assign.IsValid() {
 			sep = " = "
 		}
-		tparams, pkgRefs := pkg.formatTypeParams(n.TypeParams, depth)
-		line, refs := pkg.oneLineNodeDepth(n.Type, depth)
-		return fmt.Sprintf("type %s%s%s%s", n.Name.Name, tparams, sep, line), astutil.Merge(pkgRefs, refs)
+		tparams := pkg.formatTypeParams(n.TypeParams, depth, opts...)
+		return fmt.Sprintf("type %s%s%s%s", n.Name.Name, tparams, sep, pkg.oneLineNodeDepth(n.Type, depth, opts...))
 
 	case *ast.FuncType:
 		var params []string
-		var pkgRefs astutil.PackageReferences
 		if n.Params != nil {
-			var refs astutil.PackageReferences
-			params, _, refs = pkg.oneLineFieldList(n.Params, depth)
-			pkgRefs = astutil.Merge(pkgRefs, refs)
+			params, _ = pkg.oneLineFieldList(n.Params, depth, opts...)
 		}
 		var needParens bool
 		var results []string
 		if n.Results != nil {
-			var refs astutil.PackageReferences
-			results, needParens, refs = pkg.oneLineFieldList(n.Results, depth)
-			pkgRefs = astutil.Merge(pkgRefs, refs)
+			results, needParens = pkg.oneLineFieldList(n.Results, depth, opts...)
 		}
 
-		tparam, refs := pkg.formatTypeParams(n.TypeParams, depth)
-		pkgRefs = astutil.Merge(pkgRefs, refs)
+		tparam := pkg.formatTypeParams(n.TypeParams, depth, opts...)
 		param := joinStrings(params)
 		if len(results) == 0 {
-			return fmt.Sprintf("func%s(%s)", tparam, param), pkgRefs
+			return fmt.Sprintf("func%s(%s)", tparam, param)
 		}
 		result := joinStrings(results)
 		if !needParens {
-			return fmt.Sprintf("func%s(%s) %s", tparam, param, result), pkgRefs
+			return fmt.Sprintf("func%s(%s) %s", tparam, param, result)
 		}
-		return fmt.Sprintf("func%s(%s) (%s)", tparam, param, result), pkgRefs
+		return fmt.Sprintf("func%s(%s) (%s)", tparam, param, result)
 
 	case *ast.StructType:
 		if n.Fields == nil || len(n.Fields.List) == 0 {
-			return "struct{}", nil
+			return "struct{}"
 		}
-		return "struct{ ... }", nil
+		return "struct{ ... }"
 
 	case *ast.InterfaceType:
 		if n.Methods == nil || len(n.Methods.List) == 0 {
-			return "interface{}", nil
+			return "interface{}"
 		}
-		return "interface{ ... }", nil
+		return "interface{ ... }"
 
 	case *ast.FieldList:
 		if n == nil || len(n.List) == 0 {
-			return "", nil
+			return ""
 		}
 		if len(n.List) == 1 {
-			return pkg.oneLineField(n.List[0], depth)
+			return pkg.oneLineField(n.List[0], depth, opts...)
 		}
-		return dotDotDot, nil
+		return dotDotDot
 
 	case *ast.FuncLit:
-		line, pkgRefs := pkg.oneLineNodeDepth(n.Type, depth)
-		return line + " { ... }", pkgRefs
+		return pkg.oneLineNodeDepth(n.Type, depth, opts...) + " { ... }"
 
 	case *ast.CompositeLit:
-		typ, _ := pkg.oneLineNodeDepth(n.Type, depth)
+		typ := pkg.oneLineNodeDepth(n.Type, depth, opts...)
 		if len(n.Elts) == 0 {
-			return fmt.Sprintf("%s{}", typ), nil
+			return fmt.Sprintf("%s{}", typ)
 		}
-		return fmt.Sprintf("%s{ %s }", typ, dotDotDot), nil
+		return fmt.Sprintf("%s{ %s }", typ, dotDotDot)
 
 	case *ast.ArrayType:
-		length, pkgRefs := pkg.oneLineNodeDepth(n.Len, depth)
-		element, refs := pkg.oneLineNodeDepth(n.Elt, depth)
-		return fmt.Sprintf("[%s]%s", length, element), astutil.Merge(pkgRefs, refs)
+		length := pkg.oneLineNodeDepth(n.Len, depth, opts...)
+		element := pkg.oneLineNodeDepth(n.Elt, depth, opts...)
+		return fmt.Sprintf("[%s]%s", length, element)
 
 	case *ast.MapType:
-		key, pkgRefs := pkg.oneLineNodeDepth(n.Key, depth)
-		value, refs := pkg.oneLineNodeDepth(n.Value, depth)
-		return fmt.Sprintf("map[%s]%s", key, value), astutil.Merge(pkgRefs, refs)
+		key := pkg.oneLineNodeDepth(n.Key, depth, opts...)
+		value := pkg.oneLineNodeDepth(n.Value, depth, opts...)
+		return fmt.Sprintf("map[%s]%s", key, value)
 
 	case *ast.CallExpr:
-		fnc, pkgRefs := pkg.oneLineNodeDepth(n.Fun, depth)
+		fnc := pkg.oneLineNodeDepth(n.Fun, depth, opts...)
 		var args []string
 		var argsLen int
 		for _, arg := range n.Args {
-			line, refs := pkg.oneLineNodeDepth(arg, depth)
+			var pkgRefs astutil.PackageReferences
+			if o.PkgRefs != nil {
+				pkgRefs = make(astutil.PackageReferences)
+			}
+			opts := append(opts, godoc.WithImports(pkgRefs))
+			line := pkg.oneLineNodeDepth(arg, depth, opts...)
 			args = append(args, line)
 			argsLen += len(line) + len(", ")
 			if argsLen > punchedCardWidth {
 				break
 			}
-			pkgRefs = astutil.Merge(pkgRefs, refs)
+			o.PkgRefs.Merge(pkgRefs)
 		}
-		return fmt.Sprintf("%s(%s)", fnc, joinStrings(args)), pkgRefs
+		return fmt.Sprintf("%s(%s)", fnc, joinStrings(args))
 
 	case *ast.UnaryExpr:
-		line, pkgRefs := pkg.oneLineNodeDepth(n.X, depth)
-		return fmt.Sprintf("%s%s", n.Op, line), pkgRefs
+		return fmt.Sprintf("%s%s", n.Op, pkg.oneLineNodeDepth(n.X, depth, opts...))
 
 	case *ast.Ident:
-		return n.Name, nil
+		return n.Name
 
 	default:
 		// As a fallback, use default formatter for all unknown node types.
@@ -508,55 +490,31 @@ func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int, valName ...string
 		format.Node(buf, pkg.fs, node)
 		s := buf.String()
 		if strings.Contains(s, "\n") {
-			return dotDotDot, nil
+			return dotDotDot
 		}
-		if !godoc.NoImports {
-			pkgRefs = astutil.FindPackageReferences(node)
-		}
-		return s, pkgRefs
+		o.PkgRefs.Find(node)
+		return s
 	}
 }
 
-func (pkg *Package) formatTypeParams(list *ast.FieldList, depth int) (string, astutil.PackageReferences) {
+func (pkg *Package) formatTypeParams(list *ast.FieldList, depth int, opts ...godoc.OneLineNodeOption) string {
 	if list.NumFields() == 0 {
-		return "", nil
+		return ""
 	}
-	tparams, _, pkgRefs := pkg.oneLineFieldList(list, depth)
-	return "[" + joinStrings(tparams) + "]", pkgRefs
-}
-
-func (pkg *Package) oneLineFieldList(list *ast.FieldList, depth int) ([]string, bool, astutil.PackageReferences) {
-	var params []string
-	var paramsLen int
-	needParens := false
-	needParens = needParens || len(list.List) > 1
-	var pkgRefs astutil.PackageReferences
-	for _, field := range list.List {
-		needParens = needParens || len(field.Names) > 0
-
-		param, refs := pkg.oneLineField(field, depth)
-		params = append(params, param)
-
-		paramsLen += len(param) + len(", ")
-		if paramsLen > punchedCardWidth {
-			break
-		}
-		pkgRefs = astutil.Merge(pkgRefs, refs)
-	}
-	return params, needParens, pkgRefs
+	tparams, _ := pkg.oneLineFieldList(list, depth, opts...)
+	return "[" + joinStrings(tparams) + "]"
 }
 
 // oneLineField returns a one-line summary of the field.
-func (pkg *Package) oneLineField(field *ast.Field, depth int) (string, astutil.PackageReferences) {
+func (pkg *Package) oneLineField(field *ast.Field, depth int, opts ...godoc.OneLineNodeOption) string {
 	var names []string
 	for _, name := range field.Names {
 		names = append(names, name.Name)
 	}
-	line, pkgRefs := pkg.oneLineNodeDepth(field.Type, depth)
 	if len(names) == 0 {
-		return line, pkgRefs
+		return pkg.oneLineNodeDepth(field.Type, depth, opts...)
 	}
-	return joinStrings(names) + " " + line, pkgRefs
+	return joinStrings(names) + " " + pkg.oneLineNodeDepth(field.Type, depth, opts...)
 }
 
 // joinStrings formats the input as a comma-separated list,
