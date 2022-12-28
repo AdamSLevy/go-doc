@@ -1,35 +1,44 @@
 #!/usr/bin/env bash
 
-# Find the path to the actual `go` binary. We accept the first one we find that
-# isn't THIS script.
-THIS=$(realpath "$0")
-for f in $(which -a go); do
-  if [[ "$(realpath $f)" != "$THIS" ]]; then
-    GO="$f"
-    break
+function go-doc {
+  local GODOC=${GOSHIM_GODOC:-$(which go-doc)}
+  exec $GODOC "$@"
+}
+
+SHIM=$(realpath "$0")
+function go {
+  if ! [[ -z "$GOSHIM_GO" ]]; then
+    exec $GOSHIM_GO "$@"
+    return
   fi
-done
 
-# If we didn't find a `go` binary, then we can't do anything.
-if [[ -z "$GO" ]]; then
-  echo "command not found: go"
-  exit 1
-fi
+  # Find the path to the actual `go` binary. We accept the first one we find
+  # that isn't THIS script.
+  local GO
+  for GO in $(which -a go); do
+    if [[ "$(realpath $GO)" != "$SHIM" ]]; then
+      exec $GO "$@"
+      return
+    fi
+  done
+  echo "go shim: no other go executable in PATH" >&2
+  exit 213
+}
 
-# If the subcommand isn't doc, then we can just run the `go` binary normally
-# with all arguments.
-if [[ $1 != "doc" ]]; then
-  if [[ $1 == "-" ]] || [[ $1 == "--" ]]; then
+case $1 in
+  doc)
     shift
-  fi
-  $GO "$@"
-  exit
-fi
+    go-doc "$@"
+    exit
+    ;;
+  - | --)
+    # If we're being invoked as `go -` or `go --`, then we need to pass the
+    # arguments through to the real `go` binary.
+    shift
+    ;;
+  *) ;;
+esac
 
-# Pop off the subcommand argument.
-shift
-
-# Run the alternative go-doc binary with all remaining arguments.
-go-doc "$@"
+go "$@"
 
 # vim: shiftwidth=2
