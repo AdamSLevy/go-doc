@@ -1,7 +1,8 @@
 # Design
 
 This file contains an overview of the design and implementation of various
-aspects of this project.
+aspects of this project. Reading this should give you a high level overview of
+how the code works and is structured.
 
 Aside from anyone wishing to understand this project in particular, it should
 serve as a valuable resource for anyone interested in how official go doc
@@ -156,25 +157,78 @@ will also return false when the end of the list is reached.
 
 ### Caching
 
+Official go doc does not implement any caching. It re-walks the directories
+each time. For larger monorepos this can be slow when matching partial package
+paths.
+
+This implementation adds a shared cache of the packages within each imported
+module@version. Before walking a code root, the cache is checked, and the walk
+is skipped if it exists for that required module version. It is reasonably safe
+to assume that the content of a given imported module version should not be
+changing, and be consistent across different modules importing the same
+versions. The same assumption can't be made for the current module, so it is
+always walked.
+
+The cache files are organized in the `GODOC_CACHE` dir identically to how
+modules are organized in the `$GOPATH/pkg/mod` directory. The files are JSON
+documents. See `./internal/cache` for more info.
+
+The cache does not help speed up the search for partial matches, neither for
+matching a single package or filtering possible completions.
+
 
 ### Doc Rendering
 [Doc Rendering]: #doc-rendering
 
-After a package is found, `parsePackage` is called to perform further parsing
-of the package files. A `*Package` is returned which bundles the
-`build.Package`, `token.FileSet`, `docs.Package`, and `ast.Package`, along with other 
+Once a package is found, `parsePackage()` performs further parsing of the
+package files to initialize a `Package`, bundling the `go/build.Package`,
+`go/token.FileSet`, `go/docs.Package`, and `go/ast.Package` among other data
+required for rendering the docs. The Package also contains its own `pkgBuffer`
+which renders the `package pkg // "import.path/pkg"` lines once, the first time
+anything is written to the buffer. The buffer is flushed after all
+documentation has been rendered.
+
+There are five high level `Package` methods for rendering docs which are called
+under the following conditions. Note that `symbol` and `method` are populated
+by splitting the `symbol` from `parseArgs()` on a dot.
+
+- `allDoc()`                              -- if the `-all` flag is set, and there is no requested symbol
+- `packageDoc()`                          -- if there is no requested symbol 
+- `symbolDoc(symbol string) bool`         -- if there is a requested symbol, and no method
+- `methodDoc(symbol, method string) bool` -- if there is a requested symbol and method
+- `fieldDoc(symbol, method string) bool`  -- if there is a requested symbol and method, but `methodDoc` didn't find a match
+
+The last three methods return true if docs were rendered for a matching symbol
+or symbol/method, and false if no match was found. 
+
+If any docs are rendered for a package, the program exits successfully. So if
+there is no requested symbol then the package docs, or all docs, will always be
+rendered for the first matching package. If there is a requested symbol, we
+keep trying packages until we find the first matching package/symbol/method, or
+we run out of packages.
+
+
+#### Package.emit
+The `emit` method renders a given `ast.Node` with a top level comment appearing
+under it. This is used to render a requested symbol with its docs.
+
+#### Package.oneLineNode
+The `oneLineNode` method returns a one line representation of a given
+`ast.Node`. This is used to print the summary of the symbols after package
+docs, and for the related consts/vars, constructor functions, and methods in
+the docs for a type.
 
 
 #### Typed Values
+
+
+### Referenced Imports
 
 
 ### Colorized Markdown with Glamour
 
 
 ### Syntax Highlighting
-
-
-### Referenced Imports
 
 
 ### Staying Current
