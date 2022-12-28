@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
+GODOC=${GOSHIM_GODOC:-$(which go-doc)}
 function go-doc {
-  local GODOC=${GOSHIM_GODOC:-$(which go-doc)}
   exec $GODOC "$@"
 }
 

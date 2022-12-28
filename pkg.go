@@ -57,7 +57,7 @@ func (p *Package) ToText(w io.Writer, text, prefix, codePrefix string, opts ...o
 	pr := p.doc.Printer()
 	pr.TextPrefix = prefix
 	pr.TextCodePrefix = codePrefix
-	w.Write(outfmt.Reformat(pr.Text(d), opts...))
+	w.Write(outfmt.Reformat(pr, d, opts...))
 }
 
 // pkgBuffer is a wrapper for bytes.Buffer that prints a package clause the

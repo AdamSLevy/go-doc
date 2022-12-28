@@ -3,6 +3,7 @@ package outfmt
 import (
 	"bytes"
 	"fmt"
+	"go/doc/comment"
 	"regexp"
 
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -41,12 +42,16 @@ func newReformatOptions(opts ...ReformatOption) (opt reformatOptions) {
 	return
 }
 
-func Reformat(data []byte, opts ...ReformatOption) []byte {
+func Reformat(pr *comment.Printer, d *comment.Doc, opts ...ReformatOption) []byte {
 	opt := newReformatOptions(opts...)
 	if !IsRichMarkdown() || opt.Disabled {
-		return data
+		return pr.Text(d)
 	}
-	return ReformatCodeBlocks(data, opt.Syntaxes...)
+	data := pr.Markdown(d)
+	data = ReformatListBlocks(data)
+	data = ReformatTextBlocks(data)
+	data = ReformatCodeBlocks(data, opt.Syntaxes...)
+	return data
 }
 
 // codeBlocks matches simple code blocks in Markdown as rendered by
@@ -55,7 +60,7 @@ func Reformat(data []byte, opts ...ReformatOption) []byte {
 //
 // This regex can be viewed and better understood here:
 // https://regex101.com/r/1gbLMe/2
-var codeBlocks = regexp.MustCompile(`(?:\A|\n\n)((?:    .*?\n+)+)(?:\n|\z)`)
+var codeBlocks = regexp.MustCompile(`(?:\A|\n\n)((?:\t.*?\n+)+)(?:\n|\z)`)
 
 // ReformatCodeBlocks reformats markdown code blocks from:
 //

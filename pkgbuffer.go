@@ -16,8 +16,9 @@ func (pkg *Package) flushImports() {
 	if godoc.NoImports || short {
 		return
 	}
-	imports := astutil.NewPackageResolver(pkg.fs, pkg.pkg).BuildImports(pkg.imports, godoc.ShowStdlib)
-	imports.Render(pkg.writer)
+	astutil.NewPackageResolver(pkg.fs, pkg.pkg).
+		BuildImports(pkg.imports, godoc.ShowStdlib).
+		Render(pkg.writer)
 }
 
 const (
