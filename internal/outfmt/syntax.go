@@ -13,8 +13,14 @@ type Syntax struct {
 	Lang string
 }
 
+// PreserveAST returns true if the AST should be preserved for parsing syntax
+// directives.
+func PreserveAST() bool {
+	return IsRichMarkdown() && !SyntaxIgnore && !NoSyntax
+}
+
 func ParseSyntaxDirectives(doc *ast.CommentGroup) (langs []Syntax) {
-	if doc == nil || !IsRichMarkdown() || SyntaxIgnore || NoSyntax {
+	if doc == nil || !PreserveAST() {
 		return
 	}
 	const directive = "//syntax:"

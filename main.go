@@ -57,6 +57,7 @@ import (
 
 	"aslevy.com/go-doc/internal/completion"
 	"aslevy.com/go-doc/internal/flags"
+	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/outfmt"
 )
 
@@ -106,7 +107,8 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	flagSet.BoolVar(&showCmd, "cmd", false, "show symbols with package docs even if package is a command")
 	flagSet.BoolVar(&showSrc, "src", false, "show source code for symbol")
 	flagSet.BoolVar(&short, "short", false, "one-line representation for each symbol")
-	args = flags.AddParse(flagSet, args...)
+	flags.Parse(flagSet, args...)
+	godoc.NoImports = godoc.NoImports || short
 
 	// Set up pager and output format writers.
 	wc := outfmt.Output(writer)
@@ -118,7 +120,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	// Loop until something is printed.
 	dirs.Reset()
 	for i := 0; ; i++ {
-		buildPackage, userPath, sym, more := parseArgs(args)
+		buildPackage, userPath, sym, more := parseArgs(flagSet.Args())
 		if i > 0 && !more { // Ignore the "more" bit on the first iteration.
 			return failMessage(paths, symbol, method)
 		}

@@ -35,22 +35,28 @@ type reformatOptions struct {
 	Syntaxes []Syntax
 }
 
-func newReformatOptions(opts ...ReformatOption) (opt reformatOptions) {
-	for _, o := range opts {
-		o(&opt)
+func newReformatOptions(opts ...ReformatOption) (o reformatOptions) {
+	for _, opt := range opts {
+		opt(&o)
 	}
 	return
 }
 
 func Reformat(pr *comment.Printer, d *comment.Doc, opts ...ReformatOption) []byte {
-	opt := newReformatOptions(opts...)
-	if !IsRichMarkdown() || opt.Disabled {
+	o := newReformatOptions(opts...)
+
+	if !IsRichMarkdown() || o.Disabled {
 		return pr.Text(d)
 	}
+
+	pr.DocLinkBaseURL = BaseURL
+	pr.HeadingLevel = 1
+	pr.HeadingID = func(h *comment.Heading) string { return "" }
+
 	data := pr.Markdown(d)
 	data = ReformatListBlocks(data)
 	data = ReformatTextBlocks(data)
-	data = ReformatCodeBlocks(data, opt.Syntaxes...)
+	data = ReformatCodeBlocks(data, o.Syntaxes...)
 	return data
 }
 

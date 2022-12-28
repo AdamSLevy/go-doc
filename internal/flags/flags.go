@@ -46,7 +46,8 @@ func addAllFlags(fs *flag.FlagSet) {
 
 // addCompletionFlags to fs.
 func addCompletionFlags(fs *flag.FlagSet, args ...string) []string {
-	if len(args) == 0 || args[0] != "-complete" {
+	if len(args) == 0 ||
+		args[0] != "-complete" {
 		return args
 	}
 

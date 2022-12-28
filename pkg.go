@@ -200,7 +200,9 @@ func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Packag
 	// should fix it in go/doc.
 	// A similar story applies to factory functions.
 	mode := doc.AllDecls
-	mode |= doc.PreserveAST // See comment for Package.emit.
+	if showSrc || outfmt.PreserveAST() {
+		mode |= doc.PreserveAST // See comment for Package.emit.
+	}
 	docPkg := doc.New(astPkg, pkg.ImportPath, mode)
 	typedValue := make(map[*doc.Value]bool)
 	constructor := make(map[*doc.Func]bool)
@@ -270,39 +272,25 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 		open.IfRequested(pkg.fs, node)
 		pkg.imports.Find(node)
 		var arg any = node
-		var doc *ast.CommentGroup
 		if showSrc {
 			// Need an extra little dance to get internal comments to appear.
 			arg = &printer.CommentedNode{
 				Node:     node,
 				Comments: pkg.file.Comments,
 			}
-		} else {
-			// Save the doc comment for later and clear it from the
-			// node before we print it so it doesn't appear in its
-			// raw form.
-			switch decl := node.(type) {
-			case *ast.FuncDecl:
-				doc = decl.Doc
-				decl.Doc = nil
-				decl.Body = nil
-			case *ast.GenDecl:
-				doc = decl.Doc
-				decl.Doc = nil
-			}
 		}
-		pkg.buf.Code()
+		doc := filterNodeDoc(arg)
 
+		pkg.buf.Code()
 		err := format.Node(&pkg.buf, pkg.fs, arg)
 		if err != nil {
 			log.Fatal(err)
 		}
 		pkg.emitLocation(node)
 		if comment != "" && !showSrc {
-			pkg.newlines(1)
-			pkg.buf.Text()
-
 			syntaxes := outfmt.ParseSyntaxDirectives(doc)
+			pkg.buf.Text()
+			pkg.newlines(1)
 			pkg.ToText(&pkg.buf, comment, indent, indent+indent, outfmt.WithSyntaxes(syntaxes...))
 			pkg.newlines(2) // Blank line after comment to separate from next item.
 		} else {

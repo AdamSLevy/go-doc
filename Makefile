@@ -1,6 +1,12 @@
-.PHONY: all install go-doc clean diff diff-show
+.PHONY: all go-doc install clean 
 
 all: go-doc
+
+go-doc:
+	go build -o bin/go-doc
+
+clean:
+	rm bin/go-doc
 
 install:
 	@echo "Installing go-doc..."
@@ -9,23 +15,21 @@ install:
 	go-doc -install-completion
 	@echo "done."
 
-diff-stat:
+.PHONY: diff diff-all diff-main diff-dirs diff-pkg
+
+diff:
 	git diff --stat official-go-doc -- main.go dirs.go pkg.go
+	@echo
+	git diff --stat official-go-doc -- *_extra.go
 
 diff-all:
 	git diff -p official-go-doc -- main.go dirs.go pkg.go
 
-diff-main.go:
+diff-main:
 	git diff -p official-go-doc -- main.go
 
-diff-dirs.go:
+diff-dirs:
 	git diff -p official-go-doc -- dirs.go
 
-diff-pkg.go:
+diff-pkg:
 	git diff -p official-go-doc -- pkg.go
-
-go-doc:
-	go build -o bin/go-doc
-
-clean:
-	rm -f bin/*

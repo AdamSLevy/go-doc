@@ -129,6 +129,7 @@ func (c Completer) completePackageFilePaths(partial string) (matched bool) {
 		return
 	}
 
+	const maxDepth = 5
 	walked := make(map[string]struct{}, len(matches))
 	// Find all pkgDirs within our matches which contain at least one go
 	// file.
@@ -154,8 +155,10 @@ func (c Completer) completePackageFilePaths(partial string) (matched bool) {
 				return fs.SkipDir
 			}
 			walked[path] = struct{}{}
-			if name[0] == '.' || name == "testdata" || name == "vendor" ||
-				strings.Count(path, "/")-numSlash > 5 {
+			if name[0] == '.' ||
+				name == "testdata" ||
+				name == "vendor" ||
+				strings.Count(path, "/")-numSlash > maxDepth {
 				return fs.SkipDir
 			}
 			return nil

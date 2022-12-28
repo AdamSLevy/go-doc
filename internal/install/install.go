@@ -1,22 +1,22 @@
 package install
 
 import (
+	"log"
 	"os"
 
 	"aslevy.com/go-doc/internal/completion"
-	"aslevy.com/go-doc/internal/dlog"
 )
 
 var Requested bool
-
-var log = dlog.New(os.Stderr, "", 0)
 
 func IfRequested() {
 	if !Requested || completion.Enabled {
 		return
 	}
 
-	log.Enable()
+	log.SetFlags(0)
+	log.SetPrefix("")
+
 	log.Println("Installing files for zsh completion...")
 
 	var ret int

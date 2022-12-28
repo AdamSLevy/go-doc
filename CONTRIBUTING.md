@@ -13,17 +13,43 @@ writing code.
 
 ### Original Go Doc Source diff
 
-The make targets `diff-stat`, `diff-main.go`, `diff-pkg.go`, `diff-dirs.go`
-allow you to examine the diff of the original source files to the current work
-tree.
+The make targets `diff`, `diff-all`, `diff-main`, `diff-pkg`, `diff-dirs` allow
+you to examine the diff of the original source files to the current work tree.
 
+`make diff` shows the `git diff --stat` of the original source files, and then
+of the `*_extra.go` source files.
 ```
-$ make diff-stat
+$ make diff
 git diff --stat official-go-doc -- main.go dirs.go pkg.go
  dirs.go |  14 ++++++++++++++
- main.go |  46 ++++++++++++++++++++++++++++++++++++++++------
+ main.go |  46 +++++++++++++++++++++++++++++++++++++++++-----
  pkg.go  | 282 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++---------------------------------------------------------------------------
- 3 files changed, 261 insertions(+), 81 deletions(-)
+ 3 files changed, 262 insertions(+), 80 deletions(-)
+
+git diff --stat official-go-doc -- *_extra.go
+ dirs_extra.go |  21 +++++++++++++++++++++
+ pkg_extra.go  | 104 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 125 insertions(+)
+
+```
+
+`make diff-dirs` along with `diff-main` and `diff-pkg` show the actual diff of
+that file.
+```
+$ make diff-dirs
+git diff -p official-go-doc -- dirs.go
+diff --git a/dirs.go b/dirs.go
+index 60ad6d3..f624f09 100644
+--- a/dirs.go
++++ b/dirs.go
+@@ -16,6 +16,8 @@ import (
+        "sync"
+
+        "golang.org/x/mod/semver"
++
++       "aslevy.com/go-doc/internal/cache"
+ )
+...
 ```
 
 ### Use `go run .` instead of `go-doc`
