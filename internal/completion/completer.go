@@ -32,13 +32,21 @@ func NewCompleter(out io.Writer, dirs godoc.PackageDirs, unexported, matchCase b
 	return Completer{out: out, dirs: dirs}
 }
 
-func (c Completer) Complete(pkg godoc.PackageInfo, userPath, symbol string) bool {
+func (c Completer) Complete(args []string, pkg godoc.PackageInfo, userPath, symbol, method string) bool {
 	dlog.Printf("completing arg %d: pkg:%v userPath:%s symbol:%s", Arg, pkg != nil, userPath, symbol)
+	if Arg == 0 {
+		Arg = len(args)
+	}
+	args = append(args, "")
+	if len(args) < Arg {
+		// We don't have enough arguments to complete.
+		return false
+	}
 	switch Arg {
 	case 1:
-		return c.completeFirstArg(pkg, userPath, symbol)
+		return c.completeFirstArg(args[0], pkg, userPath, symbol, method)
 	case 2, 3:
-		return c.completeSecondArg(pkg, symbol)
+		return c.completeSecondArg(args[1], pkg, symbol, method)
 	default:
 		dlog.Println("invalid number of arguments")
 	}
@@ -63,7 +71,7 @@ func (c Completer) Complete(pkg godoc.PackageInfo, userPath, symbol string) bool
 // - within current module
 // - imported by current module
 // - everything remaining in GOPATH
-func (c Completer) completeFirstArg(pkg godoc.PackageInfo, userPath, symbol string) (matched bool) {
+func (c Completer) completeFirstArg(arg string, pkg godoc.PackageInfo, userPath, symbol, method string) (matched bool) {
 	// The user may be trying to complete a package path, or
 	// a symbol in the local package.
 
@@ -77,15 +85,17 @@ func (c Completer) completeFirstArg(pkg godoc.PackageInfo, userPath, symbol stri
 	// symbol does not have a slash.
 	fullArg := userPath + symbol
 	const dot = "."
-	hasDot := strings.HasPrefix(symbol, dot)
-	if hasDot {
+	validSymbol := strings.HasPrefix(symbol, dot) &&
+		!strings.ContainsAny(symbol, `/\`)
+	if validSymbol {
 		symbol = symbol[1:]
+
 	}
 	if !PkgsOnly &&
 		pkg != nil &&
-		(hasDot || fullArg == "") {
-		matched = c.completeSecondArg(pkg, symbol)
-		if hasDot {
+		(validSymbol || arg == "") {
+		matched = c.completeSecondArg(arg, pkg, symbol, method)
+		if validSymbol {
 			c.Println("IPREFIX=" + userPath + dot)
 			return matched
 		}
@@ -100,23 +110,19 @@ func (c Completer) completeFirstArg(pkg godoc.PackageInfo, userPath, symbol stri
 // We could be completing:
 // - a symbol or method in the given package
 // - a method on a given symbol in the given package
-func (c Completer) completeSecondArg(pkg godoc.PackageInfo, partial string) bool {
-
-	symbolMethod := strings.SplitN(partial, ".", 3)
-	switch len(symbolMethod) {
-	case 1:
-		partialSymbol := symbolMethod[0]
-		return c.completeSymbol(pkg, partialSymbol)
-	case 2:
-		symbol := symbolMethod[0]
-		partialMethodOrField := symbolMethod[1]
-		matchPartialType := Arg == 2
-		withType := Arg == 2
-		return c.completeMethodOrField(pkg, symbol, partialMethodOrField, matchPartialType, withType)
+func (c Completer) completeSecondArg(arg string, pkg godoc.PackageInfo, symbol, method string) bool {
+	// We cannot proceed without a package.
+	if pkg == nil {
+		return false
 	}
-	// go doc does not accept more than two dot separated fields so don't
-	// offer more suggestions if there are more than two fields.
-	return false
+
+	if method != "" || strings.HasSuffix(arg, ".") {
+		// We are completing a <symbol>.<method|field> in the package.
+		return c.completeMethodOrField(pkg, symbol, method)
+	}
+
+	// We are completing a symbol in the package.
+	return c.completeSymbol(pkg, symbol)
 }
 
 func (c Completer) suggest(m Match) { c.Println(m) }

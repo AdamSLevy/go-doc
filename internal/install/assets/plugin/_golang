@@ -55,6 +55,13 @@ local style
 zstyle -s ':completion:*:*:go-doc:argument-*:packages' matcher style ||
   zstyle ':completion:*:*:go-doc:argument-*:packages' matcher 'r:.../|?=**' 'l:?|/...=**' 'l:|=*' 'r:|=*'
 
+# The following allow cl.d to match Client.Do for type and interface methods
+# and struct fields.
+zstyle -s ':completion:*:*:go-doc:argument-*:*-methods' matcher style ||
+  zstyle ':completion:*:*:go-doc:argument-*:*-methods' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
+zstyle -s ':completion:*:*:go-doc:argument-*:struct-fields' matcher style ||
+  zstyle ':completion:*:*:go-doc:argument-*:struct-fields' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
+
 # Use the Golang comment string as the list separator for packages and symbols.
 zstyle -s ':completion:*:*:go*:argument-*:*' list-separator style ||
   zstyle ':completion:*:*:go*:argument-*:*' list-separator '//'
@@ -520,8 +527,16 @@ __go_package_symbols() {
   # local curcontext="${curcontext%:*}:go-package-symbols"
 
   local -a allSyms
+  local argNum=${#line}
+  allSyms=("${(@f)$(go-doc -complete -arg ${argNum} ${GODOC_OPTS} ${words[2,-1]})}") || return 1
 
-  allSyms=("${(@f)$(go-doc -complete -arg ${#line} ${GODOC_OPTS} ${words[2,-1]})}") || return 1
+  # completions for the third argument are always prefixed with the type from
+  # the second argument separated by a dot. This match spec will ignore and
+  # drop the type prefix from the completions.
+  local compaddOpts=( -o nosort -r './\-' )
+  if [[ $argNum -eq 3 ]]; then
+    compaddOpts+=( -M "L:|=${line[2]}." )
+  fi
 
   local ipre=${allSyms[-1]}
   if [[ $ipre =~ ^IPREFIX\= ]]; then 
@@ -539,9 +554,7 @@ __go_package_symbols() {
     do
       _requested $tag || continue
 
-      local -a syms symsDisplayDescriptions symsCompletions compaddOpts
-
-      compaddOpts=( -o nosort -r './a-zA-Z \t\n\-' )
+      local -a syms symsDisplayDescriptions symsCompletions 
 
       # filter symbols down to this tag
       syms=(${(M)allSyms:#${tag}:*})

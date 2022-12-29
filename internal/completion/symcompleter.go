@@ -97,30 +97,28 @@ func (c Completer) completeSymbol(pkg godoc.PackageInfo, partialSymbol string) (
 	return
 }
 
-func (c Completer) completeMethodOrField(pkg godoc.PackageInfo, symbol, method string, matchPartial, withType bool) (matched bool) {
+func (c Completer) completeMethodOrField(pkg godoc.PackageInfo, symbol, method string) (matched bool) {
 	dlog.Printf("completing methods and fields for %q matching %q", symbol, method)
 	// We had <sym>.<method|field> so we must have a type.
 	//
 	// Search all types for matching symbols.
 	//
-	// Note that due to go doc's forgiving case rules, we may match
-	// more than one symbol.
+	// Note that due to go doc's forgiving case rules, we may match more
+	// than one symbol.
 	for _, typ := range pkg.Doc().Types {
+		// We can't complete methods for partial type matches for the
+		// 3rd argument.
+		matchPartial := Arg < 3
 		if !c.match(symbol, typ.Name, matchPartial) {
-			// Not a match for symbol, moving on...
 			continue
 		}
-		var opts []MatchOption
-		if withType {
-			opts = append(opts, WithType(typ.Name))
-		}
 		typSpec := pkg.FindTypeSpec(typ.Decl, typ.Name)
-		matched = c.completeTypeDotMethodOrField(pkg, typ, typSpec, method, opts...) || matched
+		matched = c.completeTypeDotMethodOrField(pkg, typ, typSpec, method) || matched
 	}
 	return matched
 }
 
-func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *doc.Type, typSpec *ast.TypeSpec, partial string, opts ...MatchOption) (matched bool) {
+func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *doc.Type, typSpec *ast.TypeSpec, partial string) (matched bool) {
 	// We had <sym>.<method|field> so we must have a type.
 	//
 	// Search all types for matching symbols.
@@ -128,9 +126,12 @@ func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *d
 	// Note that due to go doc's forgiving case rules, we may match
 	// more than one symbol.
 
+	// WithType ensures all matches have the `<type>.` prefix added.
+	withType := WithType(docTyp.Name)
+
 	// Type Methods (<type>.<method>)
 	for _, method := range docTyp.Methods {
-		matched = c.suggestIfMatchPrefix(pkg, partial, method.Name, method.Doc, method.Decl, false, WithOpts(opts...), WithTag(TagTypeMethods)) || matched
+		matched = c.suggestIfMatchPrefix(pkg, partial, method.Name, method.Doc, method.Decl, false, withType, WithTag(TagTypeMethods)) || matched
 	}
 
 	// Interface and struct types require special handling.
@@ -143,7 +144,7 @@ func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *d
 				continue
 			}
 			name := iMethod.Names[0].Name
-			matched = c.suggestIfMatchPrefix(pkg, partial, name, iMethod.Doc.Text(), iMethod, false, WithOpts(opts...), WithTag(TagInterfaceMethods)) || matched
+			matched = c.suggestIfMatchPrefix(pkg, partial, name, iMethod.Doc.Text(), iMethod, false, withType, WithTag(TagInterfaceMethods)) || matched
 		}
 		// An interface has no fields or other methods so we are done
 		// with this type.
@@ -154,7 +155,7 @@ func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *d
 		for _, field := range typ.Fields.List {
 			docs := field.Doc.Text()
 			for _, name := range field.Names {
-				matched = c.suggestIfMatchPrefix(pkg, partial, name.Name, docs, field, false, WithOpts(opts...), WithTag(TagStructFields)) || matched
+				matched = c.suggestIfMatchPrefix(pkg, partial, name.Name, docs, field, false, withType, WithTag(TagStructFields)) || matched
 			}
 		}
 	}

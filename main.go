@@ -127,7 +127,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		completer := completion.NewCompleter(writer, dirs.PackageDirs(), unexported, matchCase)
 		if buildPackage == nil {
 			if completion.Enabled {
-				completer.Complete(nil, userPath, sym)
+				completer.Complete(flagSet.Args(), nil, userPath, sym, "")
 				return
 			}
 			return fmt.Errorf("no such package: %s", userPath)
@@ -140,15 +140,15 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		}
 
 		pkg := parsePackage(writer, buildPackage, userPath)
+		paths = append(paths, pkg.prettyPath())
+		symbol, method = parseSymbol(sym)
 		if completion.Enabled {
-			matches := completer.Complete(pkg, userPath, sym)
+			matches := completer.Complete(flagSet.Args(), pkg, userPath, symbol, method)
 			if !matches && more {
 				continue
 			}
 			return
 		}
-		paths = append(paths, pkg.prettyPath())
-		symbol, method = parseSymbol(sym)
 
 		defer func() {
 			pkg.flush()
