@@ -58,12 +58,17 @@ func WithOpts(opts ...OneLineNodeOption) OneLineNodeOption {
 	}
 }
 
+// WithValueName causes the one-line summary to be of the value with the given
+// name, not just the first name of the first exported value. This is used by
+// completion for rendering the correct suggestion display.
 func WithValueName(name string) OneLineNodeOption {
 	return func(o *OneLineNodeOptions) {
 		o.ValueName = name
 	}
 }
 
+// WithPkgRefs will save any external package references displayed in the one
+// line summary of the node into pkgRefs, if not nil.
 func WithPkgRefs(pkgRefs astutil.PackageReferences) OneLineNodeOption {
 	return func(o *OneLineNodeOptions) {
 		o.PkgRefs = pkgRefs

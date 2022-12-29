@@ -324,23 +324,21 @@ func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int, opts ...godoc.One
 		return ""
 
 	case *ast.GenDecl:
+		// Official go doc uses the first encountered name to render
+		// the line and appends ... if there are more values. It also
+		// skips value specs who's first name is not exported.
+		//
+		// Completion needs to suggest all names, not just the first,
+		// so we search specifically for that o.ValueName if set. It is
+		// rare/odd but possible for exported names to follow
+		// unexported names, so we don't stop at the first unexported
+		// name.
+		//
 		// Formats const and var declarations.
 		trailer := ""
-		name := o.ValueName
-		if name == "" && len(n.Specs) > 1 {
+		if o.ValueName == "" && len(n.Specs) > 1 {
 			trailer = " " + dotDotDot
 		}
-
-		// Official go doc does not search past the first name in
-		// a value spec, skipping the spec if the first name is not
-		// exported.
-		//
-		// It's rare but possible to have a value spec with a mix of
-		// exported and unexported names, in any order.
-		//
-		// Instead we search all names in the value spec until we find
-		// the first exported var exactly matching name, if not empty,
-		// and otherwise just the first exported ident.Name.
 
 		// Find the first relevant spec.
 		typ := ""
@@ -362,7 +360,7 @@ func (pkg *Package) oneLineNodeDepth(node ast.Node, depth int, opts ...godoc.One
 			}
 
 			for i, ident := range valueSpec.Names {
-				if !isExported(ident.Name) || (name != "" && ident.Name != name) {
+				if !isExported(ident.Name) || (o.ValueName != "" && ident.Name != o.ValueName) {
 					continue
 				}
 				val := ""
