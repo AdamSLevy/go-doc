@@ -74,11 +74,8 @@ func (i *ImportSpec) IsStdlib() bool {
 	return *i.stdlib
 }
 func (i *ImportSpec) isStdlib() bool {
-	slash := strings.Index(i.ImportPath+"/", "/")
-	firstSegment := i.ImportPath[:slash]
-	return firstSegment != "" && // absolute path
-		// stdlib packages never have a dot in their first segment.
-		!strings.Contains(firstSegment, ".")
+	return !path.IsAbs(i.ImportPath) && // absolute paths are not stdlib
+		!strings.Contains(i.ImportPath, ".") // stdlib packages do not contain dots
 }
 
 func (i *ImportDecl) Add(impI *ImportSpec) {

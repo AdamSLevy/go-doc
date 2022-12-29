@@ -35,10 +35,13 @@ func (files FileImports) Add(fileName string, imp *ImportSpec) {
 // Add imp to imports and return true if there are no package name conflicts.
 // If the imp.LocalName() conflicts with an existing import with a different
 // import path, return false.
+//
+// Packages with a local name of "." or "_" always return true, but may not be
+// added if there was a conflict.
 func (imports Imports) Add(imp *ImportSpec) (ok bool) {
 	pkgName := imp.LocalName()
 	if existing, ok := imports[pkgName]; ok {
-		return existing.ImportPath == imp.ImportPath
+		return existing.ImportPath == imp.ImportPath || pkgName == "." || pkgName == "_"
 	}
 	imports[pkgName] = imp
 	return true

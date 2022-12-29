@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"aslevy.com/go-doc/internal/dlog"
 )
 
 var (
@@ -45,10 +43,8 @@ func Rel(path string, subs ...Sub) string {
 	}
 	rel, err := filepath.Rel(wd, path)
 	if err != nil {
-		dlog.Printf("failed to relativize %q: %v", path, err)
 		return path
 	}
-	dlog.Printf("asdf relativized %q to %q", path, rel)
 	switch rel[0] {
 	case '.', os.PathSeparator:
 	default:
