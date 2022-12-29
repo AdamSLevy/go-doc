@@ -272,6 +272,7 @@ func (pkg *Package) newlines(n int) {
 func (pkg *Package) emit(comment string, node ast.Node) {
 	if node != nil {
 		open.IfRequested(pkg.fs, node)
+		doc := filterNodeDoc(node)
 		pkg.pkgRefs.Find(node)
 		var arg any = node
 		if showSrc {
@@ -281,7 +282,6 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 				Comments: pkg.file.Comments,
 			}
 		}
-		doc := filterNodeDoc(arg)
 
 		pkg.buf.Code()
 		err := format.Node(&pkg.buf, pkg.fs, arg)

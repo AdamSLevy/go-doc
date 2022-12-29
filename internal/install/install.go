@@ -7,10 +7,8 @@ import (
 	"aslevy.com/go-doc/internal/completion"
 )
 
-var Requested bool
-
-func IfRequested() {
-	if !Requested || completion.Enabled {
+func Completion() {
+	if completion.Enabled {
 		return
 	}
 

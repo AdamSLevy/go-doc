@@ -92,6 +92,7 @@ func (l *logger) Enable() {
 		l.print = func(v ...any) { lgr.Output(l.calldepth, fmt.Sprint(v...)) }
 		l.printf = func(format string, v ...any) { lgr.Output(l.calldepth, fmt.Sprintf(format, v...)) }
 		l.println = func(v ...any) { lgr.Output(l.calldepth, fmt.Sprintln(v...)) }
+		lgr.Output(l.calldepth+2, "debug logging enabled")
 	})
 }
 func (l *logger) Print(v ...any)                 { l.print(v...) }

@@ -31,6 +31,9 @@ import (
 // `//syntax:` directives. Otherwise such directives are stripped from the
 // comments collected by the doc.Package.
 func filterNodeDoc(node any) (doc *ast.CommentGroup) {
+	if showSrc {
+		return
+	}
 	switch decl := node.(type) {
 	case *ast.FuncDecl:
 		doc = decl.Doc

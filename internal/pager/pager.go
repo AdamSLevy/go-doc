@@ -36,18 +36,18 @@ func Pager(output io.Writer) (io.WriteCloser, error) {
 		return fallback, nil
 	}
 
-	pagerEnv := getPagerEnv()
-	pagerArgs := strings.Fields(pagerEnv)
-	if pagerArgs[0] == "less" {
-		// Ensure less is invoked with the -R flag, which passes
-		// through terminal control characters.
-		pagerArgs = append(pagerArgs, "-R")
+	pager := getPagerEnv()
+	if pager == "-" {
+		Disabled = true
+		return fallback, nil
 	}
-	pagerCmd, err := executil.Command(pagerArgs...)
+
+	pagerCmd, err := executil.Command(getPagerEnv())
 	if err != nil {
 		return fallback, err
 	}
 	pagerCmd.Stdout = output
+	pagerCmd.Stderr = os.Stderr
 
 	pagerStdin, err := pagerCmd.StdinPipe()
 	if err != nil {
@@ -70,7 +70,7 @@ func getPagerEnv() string {
 		"PAGER",
 	}
 	for _, envVar := range envVars {
-		pager := os.Getenv(envVar)
+		pager := strings.TrimSpace(os.Getenv(envVar))
 		if pager != "" {
 			return pager
 		}

@@ -5,9 +5,7 @@ import (
 	"strings"
 
 	"aslevy.com/go-doc/internal/completion"
-	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/godoc"
-	"aslevy.com/go-doc/internal/install"
 )
 
 // Parse is like [flag.FlagSet.Parse], but it adds all flags defined in this
@@ -44,20 +42,22 @@ import (
 //
 //syntax:text
 func Parse(fs *flag.FlagSet, args ...string) {
+	if len(args) > 0 && args[0] == "-complete" {
+		args = args[1:]
+		completion.Enabled = true
+		addCompletionFlags(fs)
+	}
 	addAllFlags(fs)
-	args = addCompletionFlags(fs, args...)
 	args = parse(fs, args...)
 
-	if debug {
-		dlog.Enable()
-	}
-
-	install.IfRequested()
-
+	// Skip imports if we are completing since they are not needed and
+	// require additional parsing of the AST.
 	godoc.NoImports = godoc.NoImports || completion.Enabled
 
+	// When there are exactly three arguments, join the last two with
+	// a dot, unless we are in completion mode.
 	// <pkg> <type> <method|field> -> <pkg> <type>.<method|field>
-	if len(args) == 3 {
+	if len(args) == 3 && !completion.Enabled {
 		method := args[2]
 		args = args[:2]
 		args[1] += "." + method

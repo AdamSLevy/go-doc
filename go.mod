@@ -7,7 +7,6 @@ require (
 	github.com/charmbracelet/glamour v0.6.1-0.20221114002222-bf21e0bca6f3
 	github.com/muesli/reflow v0.3.0
 	github.com/muesli/termenv v0.13.0
-	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.1
 	golang.org/x/exp v0.0.0-20221215174704-0915cd710c24
 	golang.org/x/mod v0.6.0

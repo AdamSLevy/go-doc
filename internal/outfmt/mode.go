@@ -11,8 +11,8 @@ const Default Mode = Text
 type Mode = string
 
 const (
-	// Text is the default output format, equivalent to official go doc
-	// output.
+	// Text is the default output format, mostly equivalent to official go
+	// doc output.
 	Text Mode = "text"
 	// ModeMarkdown renders markdown with "```<lang>" style code blocks.
 	//
@@ -46,6 +46,8 @@ func ParseMode(val string) (Mode, error) {
 		return Markdown, nil
 	case "txt", "go":
 		return Text, nil
+	case "zsh":
+		return Term, nil
 	case Text, Markdown, Term:
 		return val, nil
 	default:

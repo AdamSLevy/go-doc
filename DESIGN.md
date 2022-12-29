@@ -10,7 +10,7 @@ works, or in writing custom Zsh completions.
 
 ## Design Goals
 
-- Make `go doc` easier to use and more helpful to developers.
+- Improve the developer user experience of `go doc`.
 - Preserve the core functionality of `go doc`. Must work as a drop-in
   replacement. Official flag and argument syntax must continue to work.
 - Minimize the [diff] with the official `cmd/doc` source to keep it easy to
@@ -18,21 +18,30 @@ works, or in writing custom Zsh completions.
   Current].
 - Avoid external dependencies other than Go and Zsh.
 
-[diff]:https://github.com/AdamSLevy/go-doc/compare/go-doc-official...main
+[diff]:https://github.com/AdamSLevy/go-doc/compare/official-go-doc...main
 
 ## Go doc
 
-The official go doc implementation is in package
-[`cmd/doc`](https://pkg.go.dev/cmd/doc).
+The official go doc implementation is part of the Golang stdlib and lives in in
+package [`cmd/doc`](https://pkg.go.dev/cmd/doc).
 
-There are three source files with the following concerns.
-- main.go -- Flag and [Argument Parsing], [Package Resolution]
-- dirs.go -- [Package Discovery]
-- pkg.go  -- Symbol resolution, [Doc Rendering]
+There are three source files with the following concerns:
+- `main.go`     -- Flag and [Argument Parsing], [Package Resolution]
+- `dirs.go`     -- [Package Discovery]
+- `pkg.go`      -- Symbol resolution, [Doc Rendering]
+- `doc_test.go` -- Runs the program with various arguments and checks the output against regexes.
+- `testdata/`   -- Fake packages used for tests.
 
-Additionally there is a `doc_test.go` file and a `testdata` directory with
-packages used in the test. The test runs the `do` function against various
-arguments and checks the output against a set of regexes.
+To minimize the diff of these files with the official implementation, new code
+in the main package should be added to the files `dirsextra.go` and
+`pkgextra.go`, or abstracted to an `internal/` package.
+
+Some internal packages require access to symbols defined in the main package.
+Usually this is an indication that the symbols belong in a separate package,
+but that approach doesn't work for this project since it significantly changes
+the original files. We instead define interfaces for any required APIs and add
+any necessary methods to the types in main to satisfy those interfaces. See how
+data is passed into `internal/completion` for examples.
 
 
 ### Argument Parsing

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"path/filepath"
-	"strings"
 )
 
 type (
@@ -26,19 +24,21 @@ type (
 	PackageName = string
 )
 
-func (files FileImports) Add(fileName, pkgName string, imp *ImportSpec) {
+func (files FileImports) Add(fileName string, imp *ImportSpec) {
 	if imports, ok := files[fileName]; ok {
-		imports.Add(pkgName, imp)
+		imports.Add(imp)
 		return
 	}
-	files[fileName] = Imports{pkgName: imp}
+	files[fileName] = Imports{imp.LocalName(): imp}
 }
 
-// Add the given import and return whether the name conflicts with an existing
-// import, if it also has a distinct import path.
-func (imports Imports) Add(pkgName string, imp *ImportSpec) bool {
+// Add imp to imports and return true if there are no package name conflicts.
+// If the imp.LocalName() conflicts with an existing import with a different
+// import path, return false.
+func (imports Imports) Add(imp *ImportSpec) (ok bool) {
+	pkgName := imp.LocalName()
 	if existing, ok := imports[pkgName]; ok {
-		return existing.Path == imp.Path
+		return existing.ImportPath == imp.ImportPath
 	}
 	imports[pkgName] = imp
 	return true
@@ -112,23 +112,12 @@ func (r *PackageResolver) Resolve(pkgRef string, pos token.Pos) (*ImportSpec, er
 			continue
 		}
 
-		importPath := strings.Trim(imp.Path.Value, `"`)
-
-		spec := ImportSpec{
-			Path: importPath,
-		}
-		var pkgName string
-		if imp.Name != nil {
-			pkgName = imp.Name.Name
-			spec.Name = pkgName
-		} else {
-			pkgName = filepath.Base(importPath)
-		}
-
-		cache.Add(pkgName, &spec)
+		spec := ParseImportSpec(imp)
+		pkgName := spec.LocalName()
+		cache.Add(spec)
 
 		if pkgName == pkgRef {
-			return &spec, nil
+			return spec, nil
 		}
 	}
 	return nil, fmt.Errorf("no import spec for %s in file %q", pkgRef, fileName)
@@ -161,7 +150,7 @@ func (r *PackageResolver) BuildImports(pkgRefs PackageReferences, includeStdlib 
 			}
 			imports.Add(imp)
 
-			conflicts = conflicts || !imported.Add(pkgRef, imp)
+			conflicts = conflicts || !imported.Add(imp)
 		}
 	}
 
