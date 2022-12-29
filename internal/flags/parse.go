@@ -54,10 +54,8 @@ func Parse(fs *flag.FlagSet, args ...string) {
 	// require additional parsing of the AST.
 	godoc.NoImports = godoc.NoImports || completion.Enabled
 
-	// When there are exactly three arguments, join the last two with
-	// a dot, unless we are in completion mode.
 	// <pkg> <type> <method|field> -> <pkg> <type>.<method|field>
-	if len(args) == 3 && !completion.Enabled {
+	if len(args) == 3 {
 		method := args[2]
 		args = args[:2]
 		args[1] += "." + method

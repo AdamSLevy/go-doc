@@ -36,7 +36,7 @@
 # Authors
 # -------
 #
-#  * Adam S Levy <adam+go-doc-completion@aslevy.com>
+#  * Adam S Levy <adam@aslevy.com>
 #  * Mikkel Oscar Lyderik Larsen <mikkeloscar@gmail.com>
 #  * Paul Seyfert <pseyfert.mathphys@gmail.com>
 #  * oh-my-zsh authors:
@@ -503,7 +503,8 @@ __go_doc() {
     '-src[show the full source code for the symbol]' \
     '-u[show docs for unexported and exported symbols and methods]' \
     ':Packages: __go_package_symbols' \
-    ':Symbols: __go_package_symbols'
+    ':Symbols: __go_package_symbols' \
+    ':Methods Or Fields: __go_package_symbols'
 }
 
 __go_packages() {

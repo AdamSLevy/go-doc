@@ -23,7 +23,6 @@ var (
 type Completer struct {
 	out  io.Writer
 	dirs godoc.PackageDirs
-	opts []MatchOption
 
 	unexported bool
 	matchCase  bool
@@ -38,7 +37,7 @@ func (c Completer) Complete(pkg godoc.PackageInfo, userPath, symbol string) bool
 	switch Arg {
 	case 1:
 		return c.completeFirstArg(pkg, userPath, symbol)
-	case 2:
+	case 2, 3:
 		return c.completeSecondArg(pkg, symbol)
 	default:
 		dlog.Println("invalid number of arguments")
@@ -102,7 +101,6 @@ func (c Completer) completeFirstArg(pkg godoc.PackageInfo, userPath, symbol stri
 // - a symbol or method in the given package
 // - a method on a given symbol in the given package
 func (c Completer) completeSecondArg(pkg godoc.PackageInfo, partial string) bool {
-	dlog.Printf("completing second argument for package %q", pkg.Doc().ImportPath)
 
 	symbolMethod := strings.SplitN(partial, ".", 3)
 	switch len(symbolMethod) {
@@ -112,7 +110,9 @@ func (c Completer) completeSecondArg(pkg godoc.PackageInfo, partial string) bool
 	case 2:
 		symbol := symbolMethod[0]
 		partialMethodOrField := symbolMethod[1]
-		return c.completeMethodOrField(pkg, symbol, partialMethodOrField)
+		matchPartialType := Arg == 2
+		withType := Arg == 2
+		return c.completeMethodOrField(pkg, symbol, partialMethodOrField, matchPartialType, withType)
 	}
 	// go doc does not accept more than two dot separated fields so don't
 	// offer more suggestions if there are more than two fields.

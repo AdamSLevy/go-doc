@@ -55,6 +55,7 @@ func (m Match) String() string {
 }
 
 func NewMatch(match string, opts ...MatchOption) (m Match) {
+	m.Match = match
 	WithOpts(opts...)(&m)
 	return
 }
@@ -81,6 +82,9 @@ func WithDescription(describe string) MatchOption {
 	return func(m *Match) { m.Describe = describe }
 }
 
+func WithNoPrefix() MatchOption {
+	return func(m *Match) { m.DisplayIndent = true }
+}
 func WithType(typeName string) MatchOption {
 	return func(m *Match) { m.Type = typeName }
 }
