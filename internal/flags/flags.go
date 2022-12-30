@@ -20,8 +20,10 @@ import (
 
 // addAllFlags to fs.
 func addAllFlags(fs *flag.FlagSet) {
-	fs.Var(doer(dlog.Enable), "debug", "enable debug logging")
-	fs.Var(doer(install.Completion), "install-completion", "install files for Zsh completion")
+	debug := doer(dlog.Enable)
+	fs.Var(&debug, "debug", "enable debug logging")
+	installCompletion := doer(install.Completion)
+	fs.Var(&installCompletion, "install-completion", "install files for Zsh completion")
 
 	fs.BoolVar(&godoc.NoImports, "imports-off", false, "do not show the imports for referenced packages")
 	fs.BoolVar(&godoc.ShowStdlib, "imports-stdlib", false, "show imports for referenced stdlib packages")
@@ -44,7 +46,7 @@ func addAllFlags(fs *flag.FlagSet) {
 
 // addCompletionFlags to fs.
 func addCompletionFlags(fs *flag.FlagSet) {
-	fs.IntVar(&completion.Arg, "arg", 0, "position of arg to complete: 1, 2 or 3")
+	fs.IntVar(&completion.Current, "arg", 0, "position of arg to complete: 1, 2 or 3")
 	fs.BoolVar(&completion.PkgsOnly, "pkgs-only", false, "do not suggest symbols, only packages")
 	fs.BoolVar(&completion.ShortPath, "pkgs-short", false, "suggest the shortest unique right-partial path, instead of the full import path i.e. json instead of encoding/json")
 }
@@ -57,12 +59,29 @@ func (f *fmtFlag) Set(s string) error {
 	return err
 }
 
-// doer is a flag.Value that calls itself when Set is called. It is used for
-// functions which must always be called if a certain flag is set. If the flag
-// is provided more than once, the function is called multiple times. The
-// function must not rely on any other flag values because there is no
-// guarantee that they have been set.
+// doer is a function implementing a boolean flag.Value which calls itself when
+// Set is called. It is used for functions which must be called if a flag is
+// set like -debug and -install-completion.
+//
+// Since all arguments from the command line are also passed through to
+// completion, we must be able to disable certain flags to prevent them from
+// hijacking completion. For example if the user is typing `go doc -debug ...`
+// then we don't want `go-doc -complete ... -debug ...` to print debug logs.
+//
+// If the flag is set to "disable" then all subsequent appearences of the flag
+// are silently ignored and the function is never called. Note that since this
+// is a bool flag this must be specified as a single argument with an equal
+// sign, e.g. `-debug=disable`.
 type doer func()                 // implements flag.Value
+func (do doer) call()            { do() }
 func (do doer) String() string   { return "" }
-func (do doer) Set(string) error { do(); return nil }
 func (do doer) IsBoolFlag() bool { return true }
+func (do *doer) Set(val string) error {
+	if val == "disable" {
+		*do = nop
+	} else if val == "true" {
+		do.call()
+	}
+	return nil
+}
+func nop() {}

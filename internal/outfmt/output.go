@@ -12,7 +12,7 @@ import (
 
 func Output(w io.Writer) io.WriteCloser {
 	fallback := ioutil.WriteNopCloser(w)
-	if open.Requested || completion.Enabled {
+	if open.Requested || completion.Requested {
 		return fallback
 	}
 

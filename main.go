@@ -108,7 +108,8 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	flagSet.BoolVar(&showSrc, "src", false, "show source code for symbol")
 	flagSet.BoolVar(&short, "short", false, "one-line representation for each symbol")
 	flags.Parse(flagSet, args...)
-	godoc.NoImports = godoc.NoImports || short
+	godoc.NoImports = godoc.NoImports || short // don't show imports with -short
+	completer := completion.NewCompleter(writer, dirs.PackageDirs(), unexported, matchCase, flagSet.Args())
 
 	// Set up pager and output format writers.
 	wc := outfmt.Output(writer)
@@ -124,10 +125,9 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		if i > 0 && !more { // Ignore the "more" bit on the first iteration.
 			return failMessage(paths, symbol, method)
 		}
-		completer := completion.NewCompleter(writer, dirs.PackageDirs(), unexported, matchCase)
 		if buildPackage == nil {
-			if completion.Enabled {
-				completer.Complete(flagSet.Args(), nil, userPath, sym, "")
+			if completion.Requested {
+				completer.Complete(nil, userPath, sym, "")
 				return
 			}
 			return fmt.Errorf("no such package: %s", userPath)
@@ -142,8 +142,8 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		pkg := parsePackage(writer, buildPackage, userPath)
 		paths = append(paths, pkg.prettyPath())
 		symbol, method = parseSymbol(sym)
-		if completion.Enabled {
-			matches := completer.Complete(flagSet.Args(), pkg, userPath, symbol, method)
+		if completion.Requested {
+			matches := completer.Complete(pkg, userPath, symbol, method)
 			if !matches && more {
 				continue
 			}
@@ -267,11 +267,6 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 	if filepath.IsAbs(arg) {
 		pkg, importErr = build.ImportDir(arg, build.ImportComment)
 		if importErr == nil {
-			if completion.Enabled {
-				// Reset arg to match what the user wrote when
-				// we are completing.
-				arg = args[0]
-			}
 			return pkg, arg, "", false
 		}
 	} else {
@@ -308,9 +303,7 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 			period = len(arg)
 		} else {
 			period += start
-			// Completion needs to know whether the user has typed
-			// a period or not, so we include it in the symbol.
-			symbol = arg[period:]
+			symbol = arg[period+1:]
 		}
 		// Have we identified a package already?
 		pkg, err := build.Import(arg[0:period], wd, build.ImportComment)
@@ -332,7 +325,7 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 		dirs.Reset() // Next iteration of for loop must scan all the directories again.
 	}
 	// If it has a slash, we've failed.
-	if slash >= 0 && !completion.Enabled {
+	if slash >= 0 && !completion.Requested {
 		// build.Import should always include the path in its error message,
 		// and we should avoid repeating it. Unfortunately, build.Import doesn't
 		// return a structured error. That can't easily be fixed, since it
@@ -345,10 +338,6 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 		} else {
 			log.Fatalf("no such package %s: %s", arg[:period], importErrStr)
 		}
-	}
-
-	if completion.Enabled {
-		arg = args[0]
 	}
 
 	// Guess it's a symbol in the current directory.
@@ -383,7 +372,7 @@ func isDotSlash(arg string) bool {
 // importDir is just an error-catching wrapper for build.ImportDir.
 func importDir(dir string) *build.Package {
 	pkg, err := build.ImportDir(dir, build.ImportComment)
-	if err != nil && !completion.Enabled {
+	if err != nil && !completion.Requested {
 		log.Fatal(err)
 	}
 	return pkg
@@ -402,8 +391,10 @@ func parseSymbol(str string) (symbol, method string) {
 	case 2:
 		method = elem[1]
 	default:
-		log.Printf("too many periods in symbol specification")
-		usage()
+		if !completion.Requested {
+			log.Printf("too many periods in symbol specification")
+			usage()
+		}
 	}
 	symbol = elem[0]
 	return

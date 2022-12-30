@@ -149,7 +149,7 @@ func (pkg *Package) Fatalf(format string, args ...any) {
 // parsePackage turns the build package we found into a parsed package
 // we can then use to generate documentation.
 func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Package {
-	if completion.Enabled && pkg == nil {
+	if completion.Requested && pkg == nil {
 		return nil
 	}
 	// include tells parser.ParseDir which files to include.
@@ -171,20 +171,20 @@ func parsePackage(writer io.Writer, pkg *build.Package, userPath string) *Packag
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, pkg.Dir, include, parser.ParseComments)
 	if err != nil {
-		if completion.Enabled {
+		if completion.Requested {
 			return nil
 		}
 		log.Fatal(err)
 	}
 	// Make sure they are all in one package.
 	if len(pkgs) == 0 {
-		if completion.Enabled {
+		if completion.Requested {
 			return nil
 		}
 		log.Fatalf("no source-code package in directory %s", pkg.Dir)
 	}
 	if len(pkgs) > 1 {
-		if completion.Enabled {
+		if completion.Requested {
 			return nil
 		}
 		log.Fatalf("multiple packages in directory %s", pkg.Dir)

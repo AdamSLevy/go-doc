@@ -8,7 +8,7 @@ import (
 )
 
 func Completion() {
-	if completion.Enabled {
+	if completion.Requested {
 		return
 	}
 

@@ -45,62 +45,6 @@
 #
 # ------------------------------------------------------------------------------
 
-
-# Set default styles
-
-# style is a dummy variable for use with `zstyle -s` which appears to be the
-# simplest way to check to see if a zstyle is set at all.
-local style
-
-zstyle -s ':completion:*:*:go-doc:argument-*:packages' matcher style ||
-  zstyle ':completion:*:*:go-doc:argument-*:packages' matcher 'r:.../|?=**' 'l:?|/...=**' 'l:|=*' 'r:|=*'
-
-# The following allow cl.d to match Client.Do for type and interface methods
-# and struct fields.
-zstyle -s ':completion:*:*:go-doc:argument-*:*-methods' matcher style ||
-  zstyle ':completion:*:*:go-doc:argument-*:*-methods' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
-zstyle -s ':completion:*:*:go-doc:argument-*:struct-fields' matcher style ||
-  zstyle ':completion:*:*:go-doc:argument-*:struct-fields' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
-
-# Use the Golang comment string as the list separator for packages and symbols.
-zstyle -s ':completion:*:*:go*:argument-*:*' list-separator style ||
-  zstyle ':completion:*:*:go*:argument-*:*' list-separator '//'
-
-# Set the tag-order for completing symbols for go doc in any argument position.
- #
- # See `go doc aslevy.com/go-doc-completion/cmd/_go_doc TagConsts` for a full
- # description of all tags.
-zstyle -s ':completion:*:*:go-doc:argument-*:*' tag-order style ||
-  zstyle -e ':completion:*:*:go-doc:argument-*:*' tag-order '
-if [[ -z "$PREFIX$SUFFIX" ]]; then
-  # When nothing has been typed, show these tags separately to avoid presenting
-  # too many matches.
-  reply=( types funcs consts vars packages - )
-elif [[ $(basename $PREFIX$SUFFIX) =~ [.] ]]; then
-  # Only show <sym>.<method|field> completions if there is at least one dot in
-  # the current word.
-  # We start with type and interface methods, and then try struct fields.
-  reply=( "type-methods interface-methods" struct-fields packages )
-else
-  # Once a user is typing a symbol, the choices are going to be much more
-  # limited, so we can safely show matches from more than one tag at a time.
-  #
-  # First we suggest funcs and types together, then consts and vars.
-  #
-  # If no matches are found we try methods, without the "<type>." prefix.
-  #
-  # Finally we try all remaining consts and vars.
-  reply=( "funcs types" "consts vars" "methods" "all-*" packages )
-fi'
-
-# The symbols under the types tag have a specific ordering that should not be
-# altered even if some symbols happen to have the same documentation, so set
-# this to false.
-zstyle -s ':completion:*:*:go-doc:argument-*:types' list-grouped style ||
-  zstyle ':completion:*:*:go-doc:argument-*:types' list-grouped 'false'
-zstyle -s ':completion:*:*:go-*:argument-*:packages' list-grouped style ||
-  zstyle ':completion:*:*:go-*:argument-*:packages' list-grouped 'false'
-
 __go_buildmodes() {
   local -a buildmodes
   buildmodes=(
@@ -498,6 +442,62 @@ __go_clean() {
     '*:importpaths:__go_packages'
 }
 
+# Set default styles,
+
+# style is a dummy variable for use with `zstyle -s` which appears to be the
+# simplest way to check to see if a zstyle is set at all.
+local style
+
+zstyle -s ':completion:*:*:go-doc:argument-*:packages' matcher style ||
+  zstyle ':completion:*:*:go-doc:argument-*:packages' matcher 'r:.../|?=**' 'l:?|/...=**' 'l:|=*' 'r:|/=*' 'r:|=*'
+
+# The following allow cl.d to match Client.Do for type and interface methods
+# and struct fields.
+zstyle -s ':completion:*:*:go-doc:argument-*:*-methods' matcher style ||
+  zstyle ':completion:*:*:go-doc:argument-*:*-methods' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
+zstyle -s ':completion:*:*:go-doc:argument-*:struct-fields' matcher style ||
+  zstyle ':completion:*:*:go-doc:argument-*:struct-fields' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
+
+# Use the Golang comment string as the list separator for packages and symbols.
+zstyle -s ':completion:*:*:go*:argument-*:*' list-separator style ||
+  zstyle ':completion:*:*:go*:argument-*:*' list-separator '//'
+
+# Set the tag-order for completing symbols for go doc in any argument position.
+ #
+ # See `go doc aslevy.com/go-doc-completion/cmd/_go_doc TagConsts` for a full
+ # description of all tags.
+zstyle -s ':completion:*:*:go-doc:argument-*:*' tag-order style ||
+  zstyle -e ':completion:*:*:go-doc:argument-*:*' tag-order '
+if [[ -z "$PREFIX$SUFFIX" ]]; then
+  # When nothing has been typed, show these tags separately to avoid presenting
+  # too many matches.
+  reply=( types funcs consts vars packages - )
+elif [[ $(basename $PREFIX$SUFFIX) =~ [.] ]]; then
+  # Only show <sym>.<method|field> completions if there is at least one dot in
+  # the current word.
+  # We start with type and interface methods, and then try struct fields.
+  reply=( "type-methods interface-methods" struct-fields packages )
+else
+  # Once a user is typing a symbol, the choices are going to be much more
+  # limited, so we can safely show matches from more than one tag at a time.
+  #
+  # First we suggest funcs and types together, then consts and vars.
+  #
+  # If no matches are found we try methods, without the "<type>." prefix.
+  #
+  # Finally we try all remaining consts and vars.
+  reply=( "funcs types" "consts vars" "methods" "all-*" packages )
+fi'
+
+# The symbols under the types tag have a specific ordering that should not be
+# altered even if some symbols happen to have the same documentation, so set
+# this to false.
+zstyle -s ':completion:*:*:go-doc:argument-*:types' list-grouped style ||
+  zstyle ':completion:*:*:go-doc:argument-*:types' list-grouped 'false'
+zstyle -s ':completion:*:*:go-*:argument-*:packages' list-grouped style ||
+  zstyle ':completion:*:*:go-*:argument-*:packages' list-grouped 'false'
+
+
 __go_doc() {
   echo $context >/dev/null
   echo $curcontext >/dev/null
@@ -528,6 +528,7 @@ __go_package_symbols() {
 
   local -a allSyms
   local argNum=${#line}
+  GODOC_OPTS+=( "-debug=disable" "-install-completion=disable" )
   allSyms=("${(@f)$(go-doc -complete -arg ${argNum} ${GODOC_OPTS} ${words[2,-1]})}") || return 1
 
   # completions for the third argument are always prefixed with the type from
@@ -538,9 +539,10 @@ __go_package_symbols() {
     compaddOpts+=( -M "L:|=${line[2]}." )
   fi
 
+  # The last line from go-doc may be an IPREFIX=<pkg>. we need to set.
   local ipre=${allSyms[-1]}
   if [[ $ipre =~ ^IPREFIX\= ]]; then 
-    compset -p ${#ipre#IPREFIX=}
+    compset -p ${#ipre#IPREFIX=} 
     allSyms=( ${allSyms[1,-2]} )
   fi
 

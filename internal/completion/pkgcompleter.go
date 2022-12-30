@@ -11,13 +11,17 @@ import (
 
 func (c Completer) completePackages(partial string) (matched bool) {
 	matched = c.completePackageFilePaths(partial) || matched
+
+	// Relative paths and paths which use the backslash cannot be package
+	// import paths. Note that since we complete import paths right to
+	// left, a leading "/" could still be a package import path.
 	if strings.HasPrefix(partial, "./") ||
-		strings.HasPrefix(partial, "../") {
-		// Cannot be a package import path.
+		strings.HasPrefix(partial, "../") ||
+		strings.Contains(partial, `\`) {
 		return
 	}
-	matched = c.completePackageImportPaths(partial) || matched
-	return
+
+	return c.completePackageImportPaths(partial) || matched
 }
 
 func (c Completer) completePackageImportPaths(partial string) (matched bool) {

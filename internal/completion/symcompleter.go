@@ -98,7 +98,7 @@ func (c Completer) completeSymbol(pkg godoc.PackageInfo, partialSymbol string) (
 }
 
 func (c Completer) completeMethodOrField(pkg godoc.PackageInfo, symbol, method string) (matched bool) {
-	dlog.Printf("completing methods and fields for %q matching %q", symbol, method)
+	dlog.Printf("completing methods and fields for type %q matching %q", symbol, method)
 	// We had <sym>.<method|field> so we must have a type.
 	//
 	// Search all types for matching symbols.
@@ -106,10 +106,7 @@ func (c Completer) completeMethodOrField(pkg godoc.PackageInfo, symbol, method s
 	// Note that due to go doc's forgiving case rules, we may match more
 	// than one symbol.
 	for _, typ := range pkg.Doc().Types {
-		// We can't complete methods for partial type matches for the
-		// 3rd argument.
-		matchPartial := Arg < 3
-		if !c.match(symbol, typ.Name, matchPartial) {
+		if !c.match(symbol, typ.Name, c.matchPartialTypes) {
 			continue
 		}
 		typSpec := pkg.FindTypeSpec(typ.Decl, typ.Name)
@@ -168,7 +165,10 @@ func (c Completer) suggestIfMatchPrefix(pkg godoc.PackageInfo, partial, name, do
 	}
 
 	dlog.Printf("matched %q", name)
-	var olnOpts []godoc.OneLineNodeOption
+	olnOpts := []godoc.OneLineNodeOption{
+		// Ensures we don't waste time looking for pkg refs.
+		godoc.WithPkgRefs(nil),
+	}
 	if useName {
 		olnOpts = append(olnOpts, godoc.WithValueName(name))
 	}

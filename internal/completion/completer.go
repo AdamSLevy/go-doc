@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/token"
 	"io"
+	"log"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -13,9 +14,10 @@ import (
 )
 
 var (
-	Enabled bool
+	Requested bool
 
-	Arg       int
+	Current int
+
 	PkgsOnly  bool
 	ShortPath bool
 )
@@ -24,29 +26,65 @@ type Completer struct {
 	out  io.Writer
 	dirs godoc.PackageDirs
 
-	unexported bool
-	matchCase  bool
+	args    []string
+	current int
+
+	unexported        bool
+	matchCase         bool
+	matchPartialTypes bool
 }
 
-func NewCompleter(out io.Writer, dirs godoc.PackageDirs, unexported, matchCase bool) Completer {
-	return Completer{out: out, dirs: dirs}
+func NewCompleter(out io.Writer, dirs godoc.PackageDirs, unexported, matchCase bool, args []string) *Completer {
+	// Normally we allow partial types on either side of a dot when
+	// specifying a <type>.<method|field>
+	// i.e. go doc http cli.d<tab> -> go doc http Client.Do
+	matchPartialTypes := true
+	// Since flags.Parse joins the last 2 of 3 args with a dot, we treat
+	// the 3 argument case as if it were the 2 argument case. The Zsh
+	// completion matching handles ignoring the leading "<type>." from the
+	// completions for the third argument.
+	//
+	// The key difference is that when completing the third argument, we
+	// need a fully matched type that go doc will resolve. This is because
+	// we cannot alter previous arguments on the command line.
+	current := Current
+	if current == 3 {
+		current = 2
+		matchPartialTypes = false
+	}
+	// Assume we are completing the final argument if Current is not set.
+	if current == 0 {
+		current = len(args)
+	} else {
+		// If the user is completing an argument they haven't begun
+		// typing, then len(args) will be one less than current. Pad
+		// args with an empty string just in case. Any extra args
+		// beyond current are ignored.
+		args = append(args, "")
+		// If we still don't have enough args, then we can't proceed.
+		if len(args) < current {
+			log.Fatal("cannot complete argument -current=%d with only %d args", current, len(args)-1)
+		}
+	}
+
+	return &Completer{
+		out:               out,
+		dirs:              dirs,
+		args:              args,
+		current:           current,
+		unexported:        unexported,
+		matchCase:         matchCase,
+		matchPartialTypes: matchPartialTypes,
+	}
 }
 
-func (c Completer) Complete(args []string, pkg godoc.PackageInfo, userPath, symbol, method string) bool {
-	dlog.Printf("completing arg %d: pkg:%v userPath:%s symbol:%s", Arg, pkg != nil, userPath, symbol)
-	if Arg == 0 {
-		Arg = len(args)
-	}
-	args = append(args, "")
-	if len(args) < Arg {
-		// We don't have enough arguments to complete.
-		return false
-	}
-	switch Arg {
+func (c *Completer) Complete(pkg godoc.PackageInfo, userPath, symbol, method string) bool {
+	dlog.Printf("completing arg %d: pkg:%v userPath:%s symbol:%s", c.current, pkg != nil, userPath, symbol)
+	switch c.current {
 	case 1:
-		return c.completeFirstArg(args[0], pkg, userPath, symbol, method)
-	case 2, 3:
-		return c.completeSecondArg(args[1], pkg, symbol, method)
+		return c.completeFirstArg(c.args[0], pkg, userPath, symbol, method)
+	case 2:
+		return c.completeSecondArg(c.args[1], pkg, symbol, method)
 	default:
 		dlog.Println("invalid number of arguments")
 	}
@@ -72,37 +110,82 @@ func (c Completer) Complete(args []string, pkg godoc.PackageInfo, userPath, symb
 // - imported by current module
 // - everything remaining in GOPATH
 func (c Completer) completeFirstArg(arg string, pkg godoc.PackageInfo, userPath, symbol, method string) (matched bool) {
-	// The user may be trying to complete a package path, or
-	// a symbol in the local package.
+	// Determine what we are completing. main.parseArgs has already done
+	// the hard work of determining the package, if any can be parsed.
 
-	// If there is no local package, then the user can't be trying
-	// to complete a symbol.
+	// If parseArgs fails to parse a package, it puts the entire arg into
+	// the symbol assuming its a symbol in the local package.
 	//
-	// If symbol contains a slash, it can't be a symbol in the
-	// local package.
-	//
-	// So we only complete symbols if there is a local package, and
-	// symbol does not have a slash.
-	fullArg := userPath + symbol
+	// It could also be an incomplete package path that couldn't be parsed.
+	// If it contains path separators, then it cannot be a valid symbol.
+	const pathSeparators = `/\` // File paths on windows may use backslashes.
+	invalidSymbol := strings.ContainsAny(symbol, pathSeparators)
+
+	// If the symbol is NOT INVALID, and is either not empty or the arg
+	// ends with a dot, then the user is likely trying to complete
+	// a symbol.
 	const dot = "."
-	validSymbol := strings.HasPrefix(symbol, dot) &&
-		!strings.ContainsAny(symbol, `/\`)
-	if validSymbol {
-		symbol = symbol[1:]
+	typingSymbol := !invalidSymbol && // The symbol cannot be invalid.
+		(symbol != "" || strings.HasSuffix(arg, dot)) // We have a parsed symbol or the user just typed a dot.
 
-	}
-	if !PkgsOnly &&
-		pkg != nil &&
-		(validSymbol || arg == "") {
-		matched = c.completeSecondArg(arg, pkg, symbol, method)
-		if validSymbol {
-			c.Println("IPREFIX=" + userPath + dot)
-			return matched
+	symbolRequested := !PkgsOnly && // We've been asked not to complete symbols.
+		pkg != nil && // We can't complete symbols without a parsed package.
+		typingSymbol // The user must be typing a symbol to offer symbol completions.
+
+	if symbolRequested {
+		iPrefix := ignoredPrefix(arg, symbol, method)
+		matched = c.completeSecondArg(arg[len(iPrefix):], pkg, symbol, method)
+		if userPath != "" { // The user has specified a package.
+			// If we have matches, then we need to inform the Zsh
+			// completion script to ignore the "<pkg>." prefix so
+			// it can match the second argument completions against
+			// the first.
+			if matched {
+				// The Zsh completion script parses this line
+				// and uses it to set the IPREFIX if found.
+				c.Println("IPREFIX=" + iPrefix)
+			}
+			// Since the user has specified a package and we're
+			// into completing the symbol then we will not complete
+			// packages.
+			//
+			// The pkg may not be the one intended by the partial
+			// package path. If we don't have matches, then we'll
+			// get called again with the next matching package, if
+			// any.
+			//
+			// TODO: Provide completions for multiple matching
+			// packages, rather than stopping at the first.
+			return
 		}
+		// We completed a symbol from the local package. But it is
+		// possible the user is actually trying to complete a package,
+		// and the symbol matches are just coincidental. So go on to
+		// suggest packages as well.
 	}
-	// Otherwise we are completing a package, and we'll treat the
-	// entire symbol as the userPath.
-	return c.completePackages(fullArg)
+
+	c.completePackages(arg)
+	// Always return true to force main to exit. Otherwise it will loop
+	// infinitely if parseArgs returned more=true.
+	return true
+}
+
+// ignoredPrefix returns the "<pkg>." portion of arg. We can't rely on userPath
+// since parseArgs may alter it from what was typed.
+//
+// This is done by removing the "<sym>[.<method>]" suffix from arg.
+func ignoredPrefix(arg, symbol, method string) string {
+	// If we have a method, the we have a dot between it and the symbol.
+	symLen := len(method)
+	if symLen > 0 {
+		symLen++
+	}
+	symLen += len(symbol)
+
+	// What remains must be the length of the package path.
+	pkgLen := len(arg) - symLen
+	return arg[:pkgLen]
+
 }
 
 // go doc <pkg> <sym>[.<methodOrField>]
