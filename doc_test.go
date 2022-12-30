@@ -7,8 +7,6 @@ package main
 import (
 	"bytes"
 	"flag"
-	"go/build"
-	"internal/testenv"
 	"log"
 	"os"
 	"path/filepath"
@@ -23,12 +21,6 @@ func TestMain(m *testing.M) {
 	buildCtx.GOPATH = ""
 	testGOPATH = true // force GOPATH mode; module test is in cmd/go/testdata/script/mod_doc.txt
 
-	// Set GOROOT in case runtime.GOROOT is wrong (for example, if the test was
-	// built with -trimpath). dirsInit would identify it using 'go env GOROOT',
-	// but we can't be sure that the 'go' in $PATH is the right one either.
-	buildCtx.GOROOT = testenv.GOROOT(nil)
-	build.Default.GOROOT = testenv.GOROOT(nil)
-
 	// Add $GOROOT/src/cmd/doc/testdata explicitly so we can access its contents in the test.
 	// Normally testdata directories are ignored, but sending it to dirs.scan directly is
 	// a hack that works around the check.
@@ -38,12 +30,13 @@ func TestMain(m *testing.M) {
 	}
 
 	// Don't use a pager in tests.
-	noPager = true
+	os.Setenv("GODOC_FORMAT", "text")
+	os.Setenv("GODOC_PAGER", "-")
 
 	dirsInit(
-		Dir{ImportPath: "testdata", Dir: testdataDir},
-		Dir{ImportPath: "testdata/nested", Dir: filepath.Join(testdataDir, "nested")},
-		Dir{ImportPath: "testdata/nested/nested", Dir: filepath.Join(testdataDir, "nested", "nested")})
+		Dir{importPath: "testdata", dir: testdataDir},
+		Dir{importPath: "testdata/nested", dir: filepath.Join(testdataDir, "nested")},
+		Dir{importPath: "testdata/nested/nested", dir: filepath.Join(testdataDir, "nested", "nested")})
 
 	os.Exit(m.Run())
 }
@@ -125,6 +118,7 @@ var tests = []test{
 			`const ConstFive ...`,                                          // From block starting with unexported constant.
 			`var ExportedVariable = 1`,                                     // Simple variable.
 			`var VarOne = 1`,                                               // First entry in variable block.
+			`VarFive = 5`,                                                  // From block starting with unexported variable. Official go doc does not show this.
 			`func ExportedFunc\(a int\) bool`,                              // Function.
 			`func ReturnUnexported\(\) unexportedType`,                     // Function with unexported return type.
 			`type ExportedType struct{ ... }`,                              // Exported type.
@@ -154,7 +148,6 @@ var tests = []test{
 			`Comment before VarOne`,            // No comment for first entry in variable block.
 			`ConstTwo = 2`,                     // No second entry in constant block.
 			`VarTwo = 2`,                       // No second entry in variable block.
-			`VarFive = 5`,                      // From block starting with unexported variable.
 			`type unexportedType`,              // No unexported type.
 			`unexportedTypedConstant`,          // No unexported typed constant.
 			`\bField`,                          // No fields.

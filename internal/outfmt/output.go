@@ -16,13 +16,11 @@ func Output(w io.Writer) io.WriteCloser {
 		return fallback
 	}
 
-	closeFuns := make([]func() error, 0, 2)
 	// Set up pager and output format writers.
 	pgr, err := pager.Pager(w)
 	if err != nil {
 		log.Println("failed to use pager:", err)
 	} else {
-		closeFuns = append(closeFuns, pgr.Close)
 		fallback = pgr
 	}
 
@@ -30,14 +28,10 @@ func Output(w io.Writer) io.WriteCloser {
 	if err != nil {
 		log.Println("failed to use output format %s: %w", Format, err)
 	} else {
-		closeFuns = append(closeFuns, fmtr.Close)
 		fallback = fmtr
 	}
 
 	return ioutil.WriteCloserFunc(fallback, func() error {
-		for _, closeFun := range closeFuns {
-			defer closeFun()
-		}
 		fmtr.Close()
 		return pgr.Close()
 	})

@@ -31,14 +31,13 @@ var Disabled bool
 //
 // If the pager fails to start, the output is returned directly with the error.
 func Pager(output io.Writer) (io.WriteCloser, error) {
-	fallback := ioutil.WriteNopCloser(output)
-	if Disabled || !isTTY(output) || open.Requested {
-		return fallback, nil
-	}
-
 	pager := getPagerEnv()
 	if pager == "-" {
 		Disabled = true
+	}
+
+	fallback := ioutil.WriteNopCloser(output)
+	if Disabled || !isTTY(output) || open.Requested {
 		return fallback, nil
 	}
 
