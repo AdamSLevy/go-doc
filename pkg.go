@@ -48,8 +48,8 @@ type Package struct {
 	fs          *token.FileSet      // Needed for printing.
 	buf         pkgBuffer
 
-	pkgRefs       astutil.PackageReferences
-	insertImports int
+	pkgRefs        astutil.PackageReferences
+	endOfPkgClause int
 }
 
 func (p *Package) ToText(w io.Writer, text, prefix, codePrefix string, opts ...outfmt.ReformatOption) {
@@ -657,7 +657,7 @@ func (pkg *Package) packageClause() {
 
 	pkg.buf.Code()
 	pkg.Printf("package %s // import \"%s\"\n\n", pkg.name, importPathLink(importPath))
-	pkg.insertImports = pkg.buf.Len()
+	pkg.endOfPkgClause = pkg.buf.Len()
 	if !usingModules && importPath != pkg.build.ImportPath {
 		pkg.buf.Text()
 		pkg.Printf("WARNING: package source is installed in %q\n", pkg.build.ImportPath)

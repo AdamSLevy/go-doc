@@ -68,7 +68,7 @@ func (pkg *Package) emitLocation(node ast.Node) {
 func (pkg *Package) flushImports() {
 	// Write the buffer up to the point where we might need to insert the
 	// import block.
-	_, err := pkg.writer.Write(pkg.buf.Next(pkg.insertImports))
+	_, err := pkg.writer.Write(pkg.buf.Next(pkg.endOfPkgClause))
 	if err != nil {
 		log.Fatal(err)
 	}
