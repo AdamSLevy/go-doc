@@ -14,6 +14,8 @@ import (
 	"log"
 	"os"
 	"sync"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 const defaultCallDepth = 1
@@ -44,6 +46,7 @@ func Enable()                        { defaultLogger.Enable() }
 func Print(v ...any)                 { defaultLogger.Print(v...) }
 func Printf(format string, v ...any) { defaultLogger.Printf(format, v...) }
 func Println(v ...any)               { defaultLogger.Println(v...) }
+func Dump(v ...any)                  { defaultLogger.Dump(v...) }
 
 // Logger is a simple debug logger API. It will not produce output until Enable
 // is first called.
@@ -51,6 +54,7 @@ type Logger interface {
 	Print(...any)
 	Printf(string, ...any)
 	Println(...any)
+	Dump(...any)
 	Enable()
 }
 
@@ -58,6 +62,7 @@ type logger struct {
 	print   func(...any)
 	printf  func(string, ...any)
 	println func(...any)
+	dump    func(...any)
 
 	once      sync.Once
 	output    io.Writer
@@ -76,6 +81,7 @@ func newLogger(output io.Writer, prefix string, flag, calldepth int) *logger {
 		print:   nop,
 		printf:  nopf,
 		println: nop,
+		dump:    nop,
 
 		output:    output,
 		prefix:    prefix,
@@ -93,8 +99,11 @@ func (l *logger) Enable() {
 		l.printf = func(format string, v ...any) { lgr.Output(l.calldepth, fmt.Sprintf(format, v...)) }
 		l.println = func(v ...any) { lgr.Output(l.calldepth, fmt.Sprintln(v...)) }
 		lgr.Output(l.calldepth+2, "debug logging enabled")
+		spew := spew.NewDefaultConfig()
+		l.dump = spew.Dump
 	})
 }
 func (l *logger) Print(v ...any)                 { l.print(v...) }
 func (l *logger) Printf(format string, v ...any) { l.printf(format, v...) }
 func (l *logger) Println(v ...any)               { l.println(v...) }
+func (l *logger) Dump(v ...any)                  { l.dump(v...) }
