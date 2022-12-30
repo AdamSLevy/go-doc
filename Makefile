@@ -15,6 +15,9 @@ install:
 	go-doc -install-completion
 	@echo "done."
 
+licenses.csv: go.mod go.sum
+	go-licenses csv . | tee licenses.csv
+
 .PHONY: diff diff-all diff-main diff-dirs diff-pkg
 
 diff:
