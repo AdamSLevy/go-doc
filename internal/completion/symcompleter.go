@@ -164,7 +164,6 @@ func (c Completer) suggestIfMatchPrefix(pkg godoc.PackageInfo, partial, name, do
 		return false
 	}
 
-	dlog.Printf("matched %q", name)
 	olnOpts := []godoc.OneLineNodeOption{
 		// Ensures we don't waste time looking for pkg refs.
 		godoc.WithPkgRefs(nil),

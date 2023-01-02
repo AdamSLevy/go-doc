@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"aslevy.com/go-doc/internal/completion"
-	"aslevy.com/go-doc/internal/dlog"
 )
 
 // Parse is like [flag.FlagSet.Parse], but it adds all flags defined in this
@@ -42,8 +41,6 @@ import (
 //
 //syntax:text
 func Parse(fs *flag.FlagSet, args ...string) {
-	orig := make([]string, 0, len(args))
-	copy(orig, args)
 	if len(args) > 0 && args[0] == "-complete" {
 		args = args[1:]
 		completion.Requested = true
@@ -51,7 +48,6 @@ func Parse(fs *flag.FlagSet, args ...string) {
 	}
 	addAllFlags(fs)
 	args = parse(fs, args...)
-	dlog.Printf("args: %v", orig)
 
 	// <pkg> <type> <method|field> -> <pkg> <type>.<method|field>
 	if len(args) == 3 {

@@ -29,9 +29,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	// Don't use a pager in tests.
-	os.Setenv("GODOC_FORMAT", "text")
-	os.Setenv("GODOC_PAGER", "-")
+	os.Setenv("GODOC_FORMAT", "text") // Use the text format.
+	os.Setenv("GODOC_PAGER", "-")     // Disable paging.
 
 	dirsInit(
 		Dir{importPath: "testdata", dir: testdataDir},

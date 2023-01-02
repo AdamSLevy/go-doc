@@ -45,6 +45,224 @@
 #
 # ------------------------------------------------------------------------------
 
+# Set default styles,
+
+# val is a dummy variable for use with `zstyle -s` which appears to be the
+# simplest way to check to see if a zstyle is set at all.
+local val
+
+zstyle ':completion:*:*:go*:argument-*:*' force-list 'always'
+
+#  'r:...|/=**'         \ # '.../' in the word also matches **/ in the match pattern, matching any number of path segments
+#  'r:/...|=*'          \ # '/...' at the right edge of the word also matches *, matching anything to the right
+#  'r:/|=*'             \ # '/' at the right edge of the word also matches *, matching anything to the right
+#  'l:|.../='           \ # '.../' at the left edge of the word also matches *, matching anything to the left
+#  'l:|/='              \ # '/' at the left edge of the word also matches not having the leading slash
+#  'r:||/=*'            \ # Any '/' in the word also matches '*/', e.g. 'e/json' -> 'e*/json' matches 'encoding/json'
+#  'l:|{[^/]}=*/{[^/]}' \ # Any character at the left edge of the word, other than a '/', also matches '/'
+#  'r:|=*'                # Add * to the right edge of the word
+
+zstyle -s ':completion:*:*:go-*:argument-*:packages' matcher val ||
+  zstyle ':completion:*:*:go-*:argument-*:packages' matcher 'm:{a-zA-Z}={A-Za-z} r:/...|/=** l:/|.../=** r:/...|=* l:|.../=* r:[[:alnum:]]||/=* l:|=* x:'
+
+# The following allow cl.d to match Client.Do for type and interface methods
+# and struct fields.
+zstyle -s ':completion:*:*:go-doc:argument-*:*-methods' matcher val ||
+  zstyle ':completion:*:*:go-doc:argument-*:*-methods' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
+zstyle -s ':completion:*:*:go-doc:argument-*:struct-fields' matcher val ||
+  zstyle ':completion:*:*:go-doc:argument-*:struct-fields' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
+
+# Use the Golang comment string as the list separator for packages and symbols.
+zstyle -s ':completion:*:*:go*:argument-*:*' list-separator val ||
+  zstyle ':completion:*:*:go*:argument-*:*' list-separator '//'
+
+# Ignore completions for import paths with certain path segments. These will
+# still get suggested if they are the only match if the _ignored completer is
+# enabled.
+zstyle -s ':completion:*:*:go-*:argument-*:packages*' ignored-patterns val ||
+  zstyle ':completion:*:*:go-*:argument-*:packages*' ignored-patterns '(|[^.]*/)(internal|mocks|generated|testdata)(|/*)'
+
+# Set the tag-order for completing symbols for go doc in any argument position.
+ #
+ # See `go doc aslevy.com/go-doc-completion/cmd/_go_doc TagConsts` for a full
+ # description of all tags.
+zstyle -s ':completion:*:*:go-doc:argument-*:*' tag-order val ||
+  zstyle -e ':completion:*:*:go-doc:argument-*:*' tag-order '
+if [[ -z "$PREFIX$SUFFIX" ]]; then
+  # When nothing has been typed, show these tags separately to avoid presenting
+  # too many matches.
+  reply=( types funcs consts vars packages - )
+elif [[ $(basename $PREFIX$SUFFIX) =~ [.] ]]; then
+  # Only show <sym>.<method|field> completions if there is at least one dot in
+  # the current word.
+  # We start with type and interface methods, and then try struct fields.
+  reply=( "type-methods interface-methods" struct-fields packages )
+else
+  # Once a user is typing a symbol, the choices are going to be much more
+  # limited, so we can safely show matches from more than one tag at a time.
+  #
+  # First we suggest funcs and types together, then consts and vars.
+  #
+  # If no matches are found we try methods, without the "<type>." prefix.
+  #
+  # Finally we try all remaining consts and vars.
+  reply=( "funcs types" "consts vars" "methods" "all-*" packages )
+fi'
+
+# The symbols under the types tag have a specific ordering that should not be
+# altered even if some symbols happen to have the same documentation, so set
+# this to false.
+zstyle -s ':completion:*:*:go-doc:argument-*:types' list-grouped val ||
+  zstyle ':completion:*:*:go-doc:argument-*:types' list-grouped 'false'
+zstyle -s ':completion:*:*:go-*:argument-*:packages*' list-grouped val ||
+  zstyle ':completion:*:*:go-*:argument-*:packages*' list-grouped 'false'
+
+_go() {
+  _arguments -A '-*' \
+    "1: : _describe -t go-commands 'Go command' commands" \
+    '*:: :__subcmd'
+}
+
+local -a subcmds=('go')
+
+# __subcmd uses the first word on the command line as a subcommand to complete,
+# which is appended to the subcmds array. 
+#
+# The subcommand is completed using a function starting with __ and all the
+# elements of subcmds, joined with underscores. 
+#
+# The curcontext is modified to a special subcommand context.
+__subcmd() {
+  # cmd is the subcommand we are currently completing, which is the first word
+  # on the cli. The preceding command word was already removed by _arguments.
+  local cmd=${words[1]}
+
+  # add the command to the list of subcommands so we can recursively complete
+  # nested subcommands
+  subcmds+=( "$cmd" )
+
+   # ctx is the special context for this subcommand completion.
+  local ctx=$(__join '-' $subcmds)
+  # Set the context for the subcommand.
+  curcontext="${curcontext%:*:*}:$ctx:"
+
+  # fcmd is the subcommand completion function.
+  local fcmd=$(__join '_' $subcmds)
+  # Run the subcommand completion function
+  local ret=1
+  _call_function ret __${fcmd} && return $ret
+  # TODO: add fallback command to warn about new subcommands without
+  # completion.
+}
+
+# __join SEP [STRING...]
+#
+# Join any number of STRINGs on spaces with SEP.
+#
+# Examples:
+# $ __join '_' "a" "b" "c"
+# a_b_c
+#
+# $ __join '-' "A B" "c"
+# A-B-c
+#
+# $ __join '_'
+#
+#
+# $ __join '_' "a"
+# a
+__join() {
+  local seperator=$1
+  shift # remove first separator argument.
+  echo $@ | sed -E 's/[[:space:]]/'$seperator'/g'
+}
+
+__go_doc() {
+  echo $context >/dev/null
+  echo $curcontext >/dev/null
+  local curcontext="$curcontext"
+  _arguments \
+    '-all[show all the documentation for the package]' \
+    '-c[respect case when matching symbols]' \
+    '-cmd[treat a command (package main) like a regular package]' \
+    '-short[one-line representation for each symbol]' \
+    '-src[show the full source code for the symbol]' \
+    '-u[show docs for unexported and exported symbols and methods]' \
+    ':Packages: __go_package_symbols' \
+    ':Symbols: __go_package_symbols' \
+    ':Methods Or Fields: __go_package_symbols'
+}
+
+__go_packages() {
+  local -a GODOC_OPTS=( -arg 1 -pkgs-only )
+  local -a words=( "doc" "${words[CURRENT]}" )
+  __go_package_symbols 
+}
+
+__go_package_symbols() {
+  # allegedly tags -C does this but then the tags show up under both argument-1
+  # and go-package-symbols, which arguably may be correct but for now I prefer
+  # these tags showing up purely under the go-package-symbols context.
+  # local curcontext="${curcontext%:*}:go-package-symbols"
+
+  local -a allSyms
+  local argNum=${#line}
+  local -a DISABLE_OPTS=( "-debug=disable" "-install-completion=disable" )
+  allSyms=("${(@f)$(go-doc -complete -arg ${argNum} ${DISABLE_OPTS} ${GODOC_OPTS} ${words[2,-1]})}") || return 1
+
+  # completions for the third argument are always prefixed with the type from
+  # the second argument separated by a dot. This match spec will ignore and
+  # drop the type prefix from the completions.
+  local compaddOpts=( -o nosort -r './\' )
+  if [[ $argNum -eq 3 ]]; then
+    compaddOpts+=( -M "L:|=${line[2]}." )
+  fi
+
+  # The last line from go-doc may be an IPREFIX=<pkg>. we need to set.
+  local ipre=${allSyms[-1]}
+  if [[ $ipre =~ ^IPREFIX\= ]]; then 
+    compset -p ${#ipre#IPREFIX=} 
+    allSyms=( ${allSyms[1,-2]} )
+  fi
+
+  local -a allTags=( ${(u)allSyms%%:*} )
+  (( ${#allTags[@]} )) || return 1
+
+  local ret=1
+  _tags ${allTags[@]}
+  while _tags; do
+    for tag in ${allTags[@]}
+    do
+      _requested $tag || continue
+
+      local -a syms symsDisplayDescriptions symsCompletions 
+
+      # filter symbols down to this tag
+      syms=(${(M)allSyms:#${tag}:*})
+      # continue to next tag if there are no symbols
+      (( ${#syms[@]} )) || continue 
+      # remove <tag>: from front of all symbols
+      syms=( ${syms#*:} )
+
+      symsCompletions=( ${syms%%:*} )
+
+      symsDisplayDescriptions=( ${${syms#*:}%:} )
+ 
+      # Parse description from tag
+      desc="${tag:u}"     # to all caps
+      desc="${desc//-/ }" # replace all dashes with spaces
+
+      _describe -x -V -t $tag "$desc" 'symsDisplayDescriptions' 'symsCompletions' "${compaddOpts[@]}" && ret=0
+    done
+    (( $ret )) || break
+  done
+  # If we added matches, show completions even if we have an unambiguous match.
+  (( $ret )) || compstate[list]="list-force"
+
+  return $ret
+}
+
+
 __go_buildmodes() {
   local -a buildmodes
   buildmodes=(
@@ -322,60 +540,6 @@ if [[ "$service" = -value-* ]]; then
   return
 fi
 
-local -a subcmds=('go')
-
-# __subcmd uses the first word on the command line as a subcommand to complete,
-# which is appended to the subcmds array. 
-#
-# The subcommand is completed using a function starting with __ and all the
-# elements of subcmds, joined with underscores. 
-#
-# The curcontext is modified to a special subcommand context.
-__subcmd() {
-  # cmd is the subcommand we are currently completing, which is the first word
-  # on the cli. The preceding command word was already removed by _arguments.
-  local cmd=${words[1]}
-
-  # add the command to the list of subcommands so we can recursively complete
-  # nested subcommands
-  subcmds+=( "$cmd" )
-
-   # ctx is the special context for this subcommand completion.
-  local ctx=$(__join '-' $subcmds)
-  # Set the context for the subcommand.
-  curcontext="${curcontext%:*:*}:$ctx:"
-
-  # fcmd is the subcommand completion function.
-  local fcmd=$(__join '_' $subcmds)
-  # Run the subcommand completion function
-  local ret=1
-  _call_function ret __${fcmd} && return $ret
-  # TODO: add fallback command to warn about new subcommands without
-  # completion.
-}
-
-# __join SEP [STRING...]
-#
-# Join any number of STRINGs on spaces with SEP.
-#
-# Examples:
-# $ __join '_' "a" "b" "c"
-# a_b_c
-#
-# $ __join '-' "A B" "c"
-# A-B-c
-#
-# $ __join '_'
-#
-#
-# $ __join '_' "a"
-# a
-__join() {
-  local seperator=$1
-  shift # remove first separator argument.
-  echo $@ | sed -E 's/[[:space:]]/'$seperator'/g'
-}
-
 local -a build_flags
 build_flags=(
   '-a[force rebuilding of packages that are already up-to-date]'
@@ -440,148 +604,6 @@ __go_clean() {
     ${build_flags[@]} \
     ${mod_flags[@]} \
     '*:importpaths:__go_packages'
-}
-
-# Set default styles,
-
-# style is a dummy variable for use with `zstyle -s` which appears to be the
-# simplest way to check to see if a zstyle is set at all.
-local style
-
-zstyle -s ':completion:*:*:go-doc:argument-*:packages' matcher style ||
-  zstyle ':completion:*:*:go-doc:argument-*:packages' matcher 'r:.../|?=**' 'l:?|/...=**' 'l:|=*' 'r:|/=*' 'r:|=*'
-
-# The following allow cl.d to match Client.Do for type and interface methods
-# and struct fields.
-zstyle -s ':completion:*:*:go-doc:argument-*:*-methods' matcher style ||
-  zstyle ':completion:*:*:go-doc:argument-*:*-methods' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
-zstyle -s ':completion:*:*:go-doc:argument-*:struct-fields' matcher style ||
-  zstyle ':completion:*:*:go-doc:argument-*:struct-fields' matcher 'm:{a-zA-Z}={A-Za-z}' 'r:|.=*'
-
-# Use the Golang comment string as the list separator for packages and symbols.
-zstyle -s ':completion:*:*:go*:argument-*:*' list-separator style ||
-  zstyle ':completion:*:*:go*:argument-*:*' list-separator '//'
-
-# Set the tag-order for completing symbols for go doc in any argument position.
- #
- # See `go doc aslevy.com/go-doc-completion/cmd/_go_doc TagConsts` for a full
- # description of all tags.
-zstyle -s ':completion:*:*:go-doc:argument-*:*' tag-order style ||
-  zstyle -e ':completion:*:*:go-doc:argument-*:*' tag-order '
-if [[ -z "$PREFIX$SUFFIX" ]]; then
-  # When nothing has been typed, show these tags separately to avoid presenting
-  # too many matches.
-  reply=( types funcs consts vars packages - )
-elif [[ $(basename $PREFIX$SUFFIX) =~ [.] ]]; then
-  # Only show <sym>.<method|field> completions if there is at least one dot in
-  # the current word.
-  # We start with type and interface methods, and then try struct fields.
-  reply=( "type-methods interface-methods" struct-fields packages )
-else
-  # Once a user is typing a symbol, the choices are going to be much more
-  # limited, so we can safely show matches from more than one tag at a time.
-  #
-  # First we suggest funcs and types together, then consts and vars.
-  #
-  # If no matches are found we try methods, without the "<type>." prefix.
-  #
-  # Finally we try all remaining consts and vars.
-  reply=( "funcs types" "consts vars" "methods" "all-*" packages )
-fi'
-
-# The symbols under the types tag have a specific ordering that should not be
-# altered even if some symbols happen to have the same documentation, so set
-# this to false.
-zstyle -s ':completion:*:*:go-doc:argument-*:types' list-grouped style ||
-  zstyle ':completion:*:*:go-doc:argument-*:types' list-grouped 'false'
-zstyle -s ':completion:*:*:go-*:argument-*:packages' list-grouped style ||
-  zstyle ':completion:*:*:go-*:argument-*:packages' list-grouped 'false'
-
-
-__go_doc() {
-  echo $context >/dev/null
-  echo $curcontext >/dev/null
-  local curcontext="$curcontext"
-  _arguments \
-    '-all[show all the documentation for the package]' \
-    '-c[respect case when matching symbols]' \
-    '-cmd[treat a command (package main) like a regular package]' \
-    '-short[one-line representation for each symbol]' \
-    '-src[show the full source code for the symbol]' \
-    '-u[show docs for unexported and exported symbols and methods]' \
-    ':Packages: __go_package_symbols' \
-    ':Symbols: __go_package_symbols' \
-    ':Methods Or Fields: __go_package_symbols'
-}
-
-__go_packages() {
-  local -a GODOC_OPTS=( -arg 1 -pkgs-only )
-  local -a words=( "doc" "${words[CURRENT]}" )
-  __go_package_symbols 
-}
-
-__go_package_symbols() {
-  # allegedly tags -C does this but then the tags show up under both argument-1
-  # and go-package-symbols, which arguably may be correct but for now I prefer
-  # these tags showing up purely under the go-package-symbols context.
-  # local curcontext="${curcontext%:*}:go-package-symbols"
-
-  local -a allSyms
-  local argNum=${#line}
-  GODOC_OPTS+=( "-debug=disable" "-install-completion=disable" )
-  allSyms=("${(@f)$(go-doc -complete -arg ${argNum} ${GODOC_OPTS} ${words[2,-1]})}") || return 1
-
-  # completions for the third argument are always prefixed with the type from
-  # the second argument separated by a dot. This match spec will ignore and
-  # drop the type prefix from the completions.
-  local compaddOpts=( -o nosort -r './\-' )
-  if [[ $argNum -eq 3 ]]; then
-    compaddOpts+=( -M "L:|=${line[2]}." )
-  fi
-
-  # The last line from go-doc may be an IPREFIX=<pkg>. we need to set.
-  local ipre=${allSyms[-1]}
-  if [[ $ipre =~ ^IPREFIX\= ]]; then 
-    compset -p ${#ipre#IPREFIX=} 
-    allSyms=( ${allSyms[1,-2]} )
-  fi
-
-  local -a allTags=( ${(u)allSyms%%:*} )
-  (( ${#allTags[@]} )) || return 1
-
-  local ret=1
-  _tags ${allTags[@]}
-  while _tags; do
-    for tag in ${allTags[@]}
-    do
-      _requested $tag || continue
-
-      local -a syms symsDisplayDescriptions symsCompletions 
-
-      # filter symbols down to this tag
-      syms=(${(M)allSyms:#${tag}:*})
-      # continue to next tag if there are no symbols
-      (( ${#syms[@]} )) || continue 
-      # remove <tag>: from front of all symbols
-      syms=( ${syms#*:} )
-
-      symsCompletions=( ${syms%%:*} )
-
-      symsDisplayDescriptions=( ${${syms#*:}%:} )
- 
-      # Parse description from tag
-      desc="${tag:u}"     # to all caps
-      desc="${desc//-/ }" # replace all dashes with spaces
-
-      _describe -x -V -t $tag "$desc" 'symsDisplayDescriptions' 'symsCompletions' "${compaddOpts[@]}" && ret=0
-    done
-    (( $ret )) || break
-  done
-
-  # If we added matches, show completions even if we have an unambiguous match.
-  (( $ret )) || compstate[list]="list-force"
-
-  return $ret
 }
 
 __go_env() {
@@ -1254,12 +1276,6 @@ __go_help() {
   topics=("${(f)$(__go_help_topics)}")
   _arguments -A '-*' \
     "1: : _describe -t go-help-topics 'go help <command|topic>' commands -J 'commands' -- topics -J 'topics'"
-}
-
-_go() {
-  _arguments -A '-*' \
-    "1: : _describe -t go-commands 'Go command' commands" \
-    '*:: :__subcmd'
 }
 
 

@@ -21,12 +21,12 @@ licenses.csv: go.mod go.sum
 .PHONY: diff diff-all diff-main diff-dirs diff-pkg
 
 diff:
-	git diff --stat official-go-doc -- main.go dirs.go pkg.go
+	git diff --stat official-go-doc -- main.go dirs.go pkg.go doc_test.go
 	@echo
 	git diff --stat official-go-doc -- *extra.go
 
 diff-all:
-	git diff -p official-go-doc -- main.go dirs.go pkg.go
+	git diff -p official-go-doc -- main.go dirs.go pkg.go doc_test.go
 
 diff-main:
 	git diff -p official-go-doc -- main.go
@@ -36,3 +36,6 @@ diff-dirs:
 
 diff-pkg:
 	git diff -p official-go-doc -- pkg.go
+
+diff-test:
+	git diff -p official-go-doc -- doc_test.go

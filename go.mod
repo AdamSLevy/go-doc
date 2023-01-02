@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/alecthomas/chroma/v2 v2.4.0
 	github.com/charmbracelet/glamour v0.6.1-0.20221114002222-bf21e0bca6f3
+	github.com/davecgh/go-spew v1.1.1
 	github.com/muesli/reflow v0.3.0
 	github.com/muesli/termenv v0.13.0
 	github.com/stretchr/testify v1.8.1
@@ -15,7 +16,6 @@ require (
 require (
 	github.com/aymanbagabas/go-osc52 v1.2.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.7.0 // indirect
 	github.com/gorilla/css v1.0.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect

@@ -116,10 +116,16 @@ func (c Completer) completeFirstArg(arg string, pkg godoc.PackageInfo, userPath,
 	// If parseArgs fails to parse a package, it puts the entire arg into
 	// the symbol assuming its a symbol in the local package.
 	//
-	// It could also be an incomplete package path that couldn't be parsed.
-	// If it contains path separators, then it cannot be a valid symbol.
+	// But it could also be an incomplete package path that couldn't be
+	// parsed. If it contains path separators, then it cannot be a valid
+	// symbol.
+	//
+	// Also if the user types "go doc .<tab>" then they are completing
+	// a relative file path, not a symbol in the local package. So if the
+	// arg is exactly "." then mark the symbol as invalid.
 	const pathSeparators = `/\` // File paths on windows may use backslashes.
-	invalidSymbol := strings.ContainsAny(symbol, pathSeparators)
+	invalidSymbol := strings.ContainsAny(symbol, pathSeparators) ||
+		arg == "." // Just dot is not a symbol.
 
 	// If the symbol is NOT INVALID, and is either not empty or the arg
 	// ends with a dot, then the user is likely trying to complete
@@ -133,7 +139,7 @@ func (c Completer) completeFirstArg(arg string, pkg godoc.PackageInfo, userPath,
 		typingSymbol // The user must be typing a symbol to offer symbol completions.
 
 	if symbolRequested {
-		iPrefix := ignoredPrefix(arg, symbol, method)
+		iPrefix := packagePrefix(arg, symbol, method)
 		matched = c.completeSecondArg(arg[len(iPrefix):], pkg, symbol, method)
 		if userPath != "" { // The user has specified a package.
 			// If we have matches, then we need to inform the Zsh
@@ -170,22 +176,45 @@ func (c Completer) completeFirstArg(arg string, pkg godoc.PackageInfo, userPath,
 	return true
 }
 
-// ignoredPrefix returns the "<pkg>." portion of arg. We can't rely on userPath
-// since parseArgs may alter it from what was typed.
+// packagePrefix returns the "<pkg>." portion of arg, if any, or the empty string.
 //
-// This is done by removing the "<sym>[.<method>]" suffix from arg.
-func ignoredPrefix(arg, symbol, method string) string {
-	// If we have a method, the we have a dot between it and the symbol.
-	symLen := len(method)
-	if symLen > 0 {
-		symLen++
+// This additional parsing is necessary because we can't rely on userPath from
+// parseArgs to because parseArgs alters it from what the user typed in certain
+// cases.
+//
+// The arg is assumed to be in one of the following forms. This should be the
+// case when we are completing symbols for the first argument.
+//
+//  - <pkg>.
+//  - <pkg>.<sym>
+//  - <pkg>.<sym>.
+//  - <pkg>.<sym>.<method>
+//  - <sym>.
+//  - <sym>.<method>
+//
+// Since <pkg> may also contain one or more "." characters, we must work from
+// right to left based on the provided symbol and method.
+func packagePrefix(arg, symbol, method string) string {
+
+	// lastDot is the index of the last . found in s, or -1.
+	lastDot := func(s string) int { return strings.LastIndex(s, ".") }
+	dot := lastDot(arg)
+
+	haveMethod := len(method) > 0
+	haveSymbol := len(symbol) > 0
+	endsWithDot := dot == len(arg)-1
+
+	if haveSymbol && (haveMethod || endsWithDot) {
+		// arg is one of the following:
+		//  - <pkg>.<sym>.
+		//  - <pkg>.<sym>.<method>
+		//  - <sym>.
+		//  - <sym>.<method>
+		// So dot is the index of the . after <sym>
+		dot = lastDot(arg[:dot])
 	}
-	symLen += len(symbol)
-
-	// What remains must be the length of the package path.
-	pkgLen := len(arg) - symLen
-	return arg[:pkgLen]
-
+	// Now dot is the index of the . after the <pkg>, or -1. We want to return <pkg>.
+	return arg[:dot+1]
 }
 
 // go doc <pkg> <sym>[.<methodOrField>]

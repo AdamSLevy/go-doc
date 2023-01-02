@@ -10,24 +10,24 @@ import (
 )
 
 func (c Completer) completePackages(partial string) (matched bool) {
-	matched = c.completePackageFilePaths(partial) || matched
-
-	// Relative paths and paths which use the backslash cannot be package
-	// import paths. Note that since we complete import paths right to
-	// left, a leading "/" could still be a package import path.
-	if strings.HasPrefix(partial, "./") ||
-		strings.HasPrefix(partial, "../") ||
-		strings.Contains(partial, `\`) {
-		return
+	// Paths which start with a dot or use the backslash cannot be package
+	// import paths. Note that paths starting with a slash could be
+	// a partial import path, so we don't exclude them.
+	invalidImportPath := strings.Contains(partial, `\`) || // must be a file path on Windows
+		(strings.HasPrefix(partial, ".") && !strings.HasPrefix(partial, ".../")) // must be a relative path
+	if !invalidImportPath && c.completePackageImportPaths(partial) {
+		return true
 	}
 
-	return c.completePackageImportPaths(partial) || matched
+	// complete file paths since we didn't match any packages.
+	return c.completePackageFilePaths(partial)
 }
 
 func (c Completer) completePackageImportPaths(partial string) (matched bool) {
 	dlog.Printf("completing package import paths matching %q", partial)
 
 	partials := partialSegments(partial)
+	dlog.Printf("partials: %v", partials)
 	shortPaths := make(ShortImportPaths)
 
 	// list all possible packages
@@ -144,7 +144,6 @@ func (c Completer) completePackageFilePaths(partial string) (matched bool) {
 		numSlash := strings.Count(match, "/")
 		filepath.WalkDir(match, func(path string, d fs.DirEntry, _ error) error {
 			name := d.Name()
-			dlog.Printf("visited %q", path)
 			if !d.IsDir() {
 				if dir := filepath.Dir(path); lastDir != dir && strings.HasSuffix(name, ".go") {
 					pkgDirs = append(pkgDirs, dir)
@@ -160,7 +159,6 @@ func (c Completer) completePackageFilePaths(partial string) (matched bool) {
 			}
 			walked[path] = struct{}{}
 			if name[0] == '.' ||
-				name == "testdata" ||
 				name == "vendor" ||
 				strings.Count(path, "/")-numSlash > maxDepth {
 				return fs.SkipDir
@@ -202,6 +200,9 @@ func describePackage(packageDir string) (string, bool) {
 	}
 	docs := firstSentence(pkg.Doc)
 	docs = trimPackagePrefix(docs, pkg.Name)
+	if docs == "" {
+		docs = "Package " + pkg.Name
+	}
 	return docs, true
 }
 func firstSentence(docs string) string {
@@ -248,7 +249,7 @@ func (s ShortImportPaths) ShortestUniqueImportPath(pathSegments ...string) strin
 }
 
 func matchPackage(segments []string, numGlobs int, partials ...string) string {
-	excludeInternal := true
+	excludeInternal := false
 	allSegments := segments
 	allPartials := partials
 	var firstMatchIdx int
