@@ -21,6 +21,10 @@ var (
 
 func getCacheDir() string {
 	if dir := os.Getenv("GODOC_CACHE_DIR"); dir != "" {
+		if dir == "-" {
+			Disabled = true
+			return ""
+		}
 		return dir
 	}
 	if home, err := os.UserHomeDir(); err == nil {
