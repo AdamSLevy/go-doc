@@ -216,23 +216,59 @@ rendered for the first matching package. If there is a requested symbol, we
 keep trying packages until we find the first matching package/symbol/method, or
 we run out of packages.
 
+All of the above methods use the following two lower level methods to render
+docs:
 
-#### Package.emit
-The `emit` method renders a given `ast.Node` with a top level comment appearing
-under it. This is used to render a requested symbol with its docs.
+- `emit(comment, node)` -- Renders the `ast.Node` with a top level comment, or
+  renders the source for the node if `-src` is specified.
+- `oneLineNode(node) string` -- Renders a single line representation of node.
+  This is used to summarize the package contents or the vars, conts, funcs and
+  methods related to a type. It is also leveraged by the completion code for
+  the display string for symbol completions.
 
-#### Package.oneLineNode
-The `oneLineNode` method returns a one line representation of a given
-`ast.Node`. This is used to print the summary of the symbols after package
-docs, and for the related consts/vars, constructor functions, and methods in
-the docs for a type.
-
-
-#### Typed Values
+Both of these functions ultimately use `go/format.Node()` to render go code.
 
 
 ### Referenced Imports
 
+Unlike official `go doc`, this implementation displays an import statement for
+all external package references in the rendered documentation.
+
+Showing the externally referenced imports consists of roughly three steps:
+
+1. Build a list of externally referenced package names and their file positions
+   in all nodes rendered by `emit` or `oneLineNode`.
+2. Resolve all referenced package names to the import path declared in the
+   corresponding file.
+3. Render the import statement.
+
+Note that we can't render the imports until after we render all other docs docs
+to find external references. However we want the imports to appear after the
+package clause before all other docs.
+
+To do this we save the `Package.buf` buffer size immediately after rendering
+the package clause, and modify `Package.flush()` to write the buffer in two
+stages: initially up to the end of the package clause, allowing us to render
+any imports, and then the remaining rendered docs in the buffer.
+
+#### Finding External Package References
+
+Generally speaking, external package references are parsed as
+`*ast.SelectorExpr` nodes in the AST, where `ast.SelectorExpr.X` is an
+`*ast.Ident` with a `nil` `ast.Ident.Obj`. So we use `ast.Walk` to traverse the
+AST and search for such nodes. The package name and the `node.Pos()` of the
+reference are saved.
+
+The nodes passed to oneLineNode present a challenge because they are summaries
+of the AST. `oneLineNode` calls itself recursively, effectively walking the AST
+of the node to render a single line. It elides (`...`) fields, arguments, and
+parameters as needed. 
+
+Simply walking the node passed to it results in collecting more package
+references than will actually be shown in the one line rendering. To avoid
+this, recursive calls build distinct package lists, which are only merged if
+the node is not elided. If a rendered node is elided, any package references
+found in that node are discarded.
 
 ### Colorized Markdown with Glamour
 
