@@ -1,9 +1,14 @@
 # `go doc` Improved, with Zsh Completion
 
-This is a drop in replacement for `go doc` with a number of key improvements.
+This is a drop in replacement for `go doc` with a number of key improvements:
 
-Additionally it provides advanced Golang aware Zsh completion of packages and
-symbols for go doc and other go subcommands.
+ - Golang aware Zsh completion for symbols and packages.
+ - Flags can go anywhere, not just before the normal arguments.
+ - Show the imports for referenced external packages.
+ - Show the file and line locations of symbols.
+ - Open the file for a symbol.
+ - Pager support.
+ - Color output with syntax highlighting.
 
 ![demo](./assets/term.gif)
 
