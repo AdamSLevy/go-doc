@@ -83,7 +83,7 @@ func (c Completer) completeSymbol(pkg godoc.PackageInfo, partialSymbol string) (
 			matched = c.suggestIfMatchPrefix(pkg, partialSymbol, fnc.Name, fnc.Doc, fnc.Decl, false, WithTag(TagTypes), WithDisplayIndent(true)) || matched
 		}
 
-		if !c.IsExported(typ.Name) {
+		if !c.isExported(typ.Name) {
 			// Don't suggest the raw methods of unexported types.
 			continue
 		}
@@ -160,7 +160,7 @@ func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *d
 }
 
 func (c Completer) suggestIfMatchPrefix(pkg godoc.PackageInfo, partial, name, docs string, node ast.Node, useName bool, opts ...MatchOption) bool {
-	if !c.MatchPartial(partial, name) {
+	if !c.matchPartial(partial, name) {
 		return false
 	}
 

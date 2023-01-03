@@ -7,10 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
-	dlog = debugLogger(true)
-}
-
 func TestPartialSegments(t *testing.T) {
 	tests := []struct {
 		partial  string

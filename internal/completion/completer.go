@@ -1,3 +1,17 @@
+// Package completion generates possible completions for a given set of args
+// and results of main.parseArgs.
+//
+// A Completer is initialized with the original command line arguments and some
+// relevant flags and APIs. The results of parseArgs are then passed to
+// Completer.Complete to generate possible completions.
+//
+// The results of parseArgs are primarily used to determine the parsing state
+// of the single argument syntax: go doc <pkg>[.<sym>[.<method>]], and the
+// returned built package, if any, is used to generate symbol and method
+// completions.
+//
+// Completions are assigned a tag that is used by the Zsh completion script to
+// categorize completions. See TagPackages for more information about all tags.
 package completion
 
 import (
@@ -14,11 +28,28 @@ import (
 )
 
 var (
+	// Requested represents if completions have been requested. This is set
+	// true by internal/flags.Parse if -complete is the first argument.
+	//
+	// Generally this is checked outside of the package. Calls to
+	// Completer.Complete will generate completions regardless of this
+	// value.
 	Requested bool
 
+	// Current is the specified argument to complete as a 1-based index of
+	// the normal (non-flag) arguments after `go doc`.
+	//
+	// If 0, it is unset, and the completer uses len(args).
+	//
+	// If greater than 3, we exit status 1.
 	Current int
 
-	PkgsOnly  bool
+	// PkgsOnly causes Completer to only suggest packages, and never
+	// suggest symbols.
+	PkgsOnly bool
+
+	// ShortPath causes Completer to only suggest the shortest unique
+	// right-most path-segments.
 	ShortPath bool
 )
 
@@ -63,7 +94,7 @@ func NewCompleter(out io.Writer, dirs godoc.PackageDirs, unexported, matchCase b
 		args = append(args, "")
 		// If we still don't have enough args, then we can't proceed.
 		if len(args) < current {
-			log.Fatal("cannot complete argument -current=%d with only %d args", current, len(args)-1)
+			log.Fatalf("cannot complete argument -current=%d with only %d args", current, len(args)-1)
 		}
 	}
 
@@ -91,24 +122,26 @@ func (c *Completer) Complete(pkg godoc.PackageInfo, userPath, symbol, method str
 	return false
 }
 
+// completeFirstArg generates completion for the first argument of go doc.
+//
+// The first argument can be one of the following:
 // go doc <pkg>
 // go doc <sym>[.<methodOrField>]
 // go doc [<pkg>.]<sym>[.<methodOrField>]
 // go doc [<pkg>.][<sym>.]<methodOrField>
 //
-// We could be completing:
+// So depending on how far the user has typed, we could be completing:
 // - a package,
 // - a symbol or method in the local package,
 // - a method on a given symbol in the local package,
 // - a symbol or method in a given external package
 // - a method on a symbol in an external package.
 //
-// Package groups
-// - stdlib
-// - imported by local package
-// - within current module
-// - imported by current module
-// - everything remaining in GOPATH
+// We determine the state based on a combination of the return values of
+// parseArgs and the raw argument.
+//
+// If the arg ends in "." we assume we are now completing the next identifier,
+// either a symbol, or a method on a symbol.
 func (c Completer) completeFirstArg(arg string, pkg godoc.PackageInfo, userPath, symbol, method string) (matched bool) {
 	// Determine what we are completing. main.parseArgs has already done
 	// the hard work of determining the package, if any can be parsed.
@@ -149,7 +182,7 @@ func (c Completer) completeFirstArg(arg string, pkg godoc.PackageInfo, userPath,
 			if matched {
 				// The Zsh completion script parses this line
 				// and uses it to set the IPREFIX if found.
-				c.Println("IPREFIX=" + iPrefix)
+				c.println("IPREFIX=" + iPrefix)
 			}
 			// Since the user has specified a package and we're
 			// into completing the symbol then we will not complete
@@ -217,11 +250,15 @@ func packagePrefix(arg, symbol, method string) string {
 	return arg[:dot+1]
 }
 
-// go doc <pkg> <sym>[.<methodOrField>]
+// completeSecondArg generates completion for the second argument of go doc:
 //
-// We could be completing:
-// - a symbol or method in the given package
+//   go doc <pkg> <sym>[.<methodOrField>]
+//
+// So we could be completing:
+// - a symbol in the given package
 // - a method on a given symbol in the given package
+//
+// If the are ends in "." then we assume we are completing methods.
 func (c Completer) completeSecondArg(arg string, pkg godoc.PackageInfo, symbol, method string) bool {
 	// We cannot proceed without a package.
 	if pkg == nil {
@@ -237,35 +274,35 @@ func (c Completer) completeSecondArg(arg string, pkg godoc.PackageInfo, symbol, 
 	return c.completeSymbol(pkg, symbol)
 }
 
-func (c Completer) suggest(m Match) { c.Println(m) }
+func (c Completer) suggest(m Match) { c.println(m) }
 
-func (c Completer) Print(a ...any) (int, error) {
+func (c Completer) print(a ...any) (int, error) {
 	return fmt.Fprint(c.out, a...)
 }
-func (c Completer) Println(a ...any) (int, error) {
+func (c Completer) println(a ...any) (int, error) {
 	return fmt.Fprintln(c.out, a...)
 }
-func (c Completer) Printf(format string, a ...any) (int, error) {
+func (c Completer) printf(format string, a ...any) (int, error) {
 	return fmt.Fprintf(c.out, format, a...)
 }
 
-// IsExported reports whether the name is an exported identifier.
-// If the unexported flag (-u) is true, IsExported returns true because
+// isExported reports whether the name is an exported identifier.
+// If the unexported flag (-u) is true, isExported returns true because
 // it means that we treat the name as if it is exported.
-func (c Completer) IsExported(name string) bool {
+func (c Completer) isExported(name string) bool {
 	return c.unexported || token.IsExported(name)
 }
 
-// MatchPartial is like Match but also returns true if the user's symbol is
+// matchPartial is like Match but also returns true if the user's symbol is
 // a prefix of the program's. An empty user string matches any program string.
-func (c Completer) MatchPartial(user, program string) bool {
+func (c Completer) matchPartial(user, program string) bool {
 	return c.match(user, program, true)
 }
 
-// Match reports whether the user's symbol matches the program's.
+// matchFull reports whether the user's symbol matches the program's.
 // A lower-case character in the user's string matches either case in the program's.
 // The program string must be exported.
-func (c Completer) Match(user, program string) bool {
+func (c Completer) matchFull(user, program string) bool {
 	return c.match(user, program, false)
 }
 
@@ -276,7 +313,7 @@ func (c Completer) Match(user, program string) bool {
 // If partial is true, the user's symbol may be a prefix of the program's. In
 // this case an empty user string matches any program string.
 func (c Completer) match(user, program string, partial bool) bool {
-	if !c.IsExported(program) {
+	if !c.isExported(program) {
 		return false
 	}
 	if c.matchCase {

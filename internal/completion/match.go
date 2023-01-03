@@ -4,6 +4,15 @@ import "strings"
 
 const indent = "    "
 
+// Match represents a single matching completion.
+//
+// It is serialized to a bespoke string format with ":" delimited values. The
+// Zsh completion script parses this to determine various properties of the
+// completion, like its tag, display, and description.
+//
+// This odd bespoke format is used because it is relatively simple to parse
+// using Zsh parameter expansion and avoids external dependencies like jq for
+// parsing JSON.
 type Match struct {
 	Pkg   string
 	Type  string
@@ -17,6 +26,13 @@ type Match struct {
 	Tag string
 }
 
+// String returns the string representation of the match which is the following
+// format. Empty fields are omitted if shown in [brackets].
+//
+//   [<tag>:][[<pkg>.]<type>.]<match>:<display>:<describe>
+//
+// Note: If m.Tag is TagStructFields or TagInterfaceMethods, `<type>.` is also
+// prepended to `<display>`.
 func (m Match) String() string {
 	var match string
 	if m.Pkg != "" {
@@ -55,6 +71,9 @@ func (m Match) String() string {
 }
 
 func NewMatch(match string, opts ...MatchOption) (m Match) {
+	if match == "" {
+		panic("empty completion")
+	}
 	m.Match = match
 	WithOpts(opts...)(&m)
 	return
@@ -96,6 +115,9 @@ func WithTag(tag Tag) MatchOption {
 	return func(m *Match) { m.Tag += tag }
 }
 
+// Tag is a string which is used to categorize completions.
+//
+// Tag is a type alias purely for documentation purposes.
 type Tag = string
 
 const (
@@ -107,52 +129,52 @@ const (
 	//
 	// Typed const groups are shown under the types tag with the given
 	// type, just as go doc organizes them.
-	TagConsts = "consts"
+	TagConsts Tag = "consts"
 
 	// TagAllConsts contains all consts, including subsequent names in
 	// grouped const declarations, and typed consts.
 	//
 	// Since any const name in a const group will return the same output
 	// from go doc, this tag should only be checked last as a fallback.
-	TagAllConsts = "all-consts"
+	TagAllConsts Tag = "all-consts"
 
 	// TagVars contains the first var in each non-typed var group
 	// declaration, just as go doc displays vars in the package summary.
 	//
 	// Typed var groups are shown under the types tag with the given type,
 	// just as go doc organizes them.
-	TagVars = "vars"
+	TagVars Tag = "vars"
 
 	// TagAllVars contains all vars, including subsequent names in grouped
 	// var declarations, and typed vars.
 	//
 	// Since any var name in a var group will return the same output from
 	// go doc, this tag should only be checked last as a fallback.
-	TagAllVars = "all-vars"
+	TagAllVars Tag = "all-vars"
 
 	// TagFuncs contains all functions in the package, except for factory
 	// functions for exported types, which are listed under the types tag
 	// with the type they provide.
-	TagFuncs = "funcs"
+	TagFuncs Tag = "funcs"
 
 	// TagTypes contains all types with their associated var and const
 	// declarations and factory functions.
-	TagTypes = "types"
+	TagTypes Tag = "types"
 
 	// TagTypeMethods contains all methods in the form "<type>.<method>".
-	TagTypeMethods = "type-methods"
+	TagTypeMethods Tag = "type-methods"
 
 	// TagInterfaceMethods contains all interface methods in the form
 	// "<type>.<method>"
-	TagInterfaceMethods = "interface-methods"
+	TagInterfaceMethods Tag = "interface-methods"
 
 	// TagStructFields contains all struct fields in the form
 	// "<type>.<field>"
-	TagStructFields = "struct-fields"
+	TagStructFields Tag = "struct-fields"
 
 	// TagMethods contains all methods without the preceding "<type>."
 	//
 	// Usually these should only be shown after no other matches have been
 	// found.
-	TagMethods = "methods"
+	TagMethods Tag = "methods"
 )
