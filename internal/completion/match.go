@@ -70,6 +70,9 @@ func (m Match) String() string {
 	return strings.Join(fields, ":")
 }
 
+// NewMatch returns a new Match with the given match and options.
+//
+// It panics if match is empty.
 func NewMatch(match string, opts ...MatchOption) (m Match) {
 	if match == "" {
 		panic("empty completion")
