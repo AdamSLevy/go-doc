@@ -372,7 +372,10 @@ func isDotSlash(arg string) bool {
 // importDir is just an error-catching wrapper for build.ImportDir.
 func importDir(dir string) *build.Package {
 	pkg, err := build.ImportDir(dir, build.ImportComment)
-	if err != nil && !completion.Requested {
+	if err != nil {
+		if completion.Requested {
+			return nil
+		}
 		log.Fatal(err)
 	}
 	return pkg
