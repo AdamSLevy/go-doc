@@ -190,7 +190,7 @@ func (c *Cache) moduleCachePath(importPath, modDir string) string {
 	}
 
 	if isStdlib(importPath) {
-		return filepath.Join(c.Dir, "go-stdlib",
+		return filepath.Join(c.Dir, "go", "stdlib",
 			// importPath is empty or "cmd", so this will either be
 			// "src" or "src/cmd"
 			"src", importPath) +
@@ -205,7 +205,7 @@ func (c *Cache) moduleCachePath(importPath, modDir string) string {
 	// want to use the same directory structure as the go mod cache because
 	// the file names it uses are robust to case-insensitive file systems.
 	relModDir := strings.TrimPrefix(modDir, c.GoModCache)
-	return filepath.Join(c.Dir, relModDir) + moduleCacheName
+	return filepath.Join(c.Dir, "go", "pkg", "mod", relModDir) + moduleCacheName
 }
 func isStdlib(importPath string) bool {
 	switch importPath {
