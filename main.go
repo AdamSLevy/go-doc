@@ -140,7 +140,6 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		}
 
 		pkg := parsePackage(writer, buildPackage, userPath)
-		paths = append(paths, pkg.prettyPath())
 		symbol, method = parseSymbol(sym)
 		if completion.Requested {
 			matches := completer.Complete(pkg, userPath, symbol, method)
@@ -149,6 +148,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 			}
 			return
 		}
+		paths = append(paths, pkg.prettyPath())
 
 		defer func() {
 			pkg.flush()
