@@ -116,7 +116,7 @@ type RegisterPackage = func(importPath, dir string)
 
 func (c *Cache) Load(importPath, moduleDir string, register RegisterPackage) error {
 	if c.Disabled || c.Rebuild {
-		return nil
+		return fmt.Errorf("cache disabled")
 	}
 
 	dir, file := c.moduleCachePath(importPath, moduleDir)
