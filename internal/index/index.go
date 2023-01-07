@@ -1,103 +1,85 @@
 package index
 
 import (
-	"path"
+	"encoding/json"
 	"strings"
+	"time"
 
 	"golang.org/x/exp/slices"
 
 	"aslevy.com/go-doc/internal/dlog"
 )
 
+type Module struct {
+	ImportPath string
+	Version    string
+	Dir        string
+
+	Packages []string `json:",omitempty"`
+}
+
+func NewModule(importPath, version, dir string, pkgs ...string) Module {
+	return Module{
+		ImportPath: importPath,
+		Version:    version,
+		Dir:        dir,
+		Packages:   pkgs,
+	}
+}
+
 type Packages interface {
+	// Sync the index with the given modules by removing any modules not in
+	// mods and their packages. Return any modules which differ in version,
+	// or are not yet indexed at all.
+	//
+	// The Modules in mods only need an ImportPath and Version. They do not
+	// need their Packages populated.
+	//
+	// For the index to be fully up to date, all returned outdated Modules
+	// must be passed to Update with their Packages populated.
 	Sync(mods ...Module) (outdated []Module)
+
+	// Update the index with the given mods.
+	//
+	// Usually this is called with the outdated Modules returned from Sync
+	// after populating their Packages.
+	//
+	// The Packages of each Module in mods are added to the index, or
+	// updated if they are already indexed.
+	//
+	// Modules already indexed but not in mods are not affected.
 	Update(mods ...Module)
+
+	// Search for packages matching the given path, which could be a full
+	// import path, or some number of right-most path segments.
+	//
+	// If SearchExact() is passed, then only packages which exactly match
+	// the path segments are returned.
+	//
+	// Otherwise the segments in path are matched as path segment prefixes.
 	Search(path string, opts ...SearchOption) (pkgs []string)
+}
+
+func New(mods ...Module) Packages {
+	idx := packageIndex{CreatedAt: time.Now()}
+	idx.Update(mods...)
+	return &idx
 }
 
 var _ Packages = (*packageIndex)(nil)
 
 type packageIndex struct {
 	Modules    []Module
-	ByNumSlash []partialList
+	ByNumSlash []rightPartialList
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
-type partialList []partial
-type partial struct {
-	Parts    []string
-	Packages packageList
-}
-
-type package_ []string
-
-func newPackage(mod Module, pkgImportPath string) package_ {
-	relPath := strings.TrimPrefix(pkgImportPath, mod.ImportPath)
-	relPath = strings.Trim(relPath, "/")
-	var relParts []string
-	if relPath != "" {
-		relParts = strings.Split(relPath, "/")
-	}
-	parts := make([]string, len(relParts)+1)
-	parts[0] = mod.ImportPath
-	copy(parts[1:], relParts)
-	return package_(parts)
-}
-
-func (pkg package_) ModulePath() string { return pkg[0] }
-func (pkg package_) ImportPath() string { return path.Join(pkg...) }
-func (pkg package_) String() string     { return pkg.ImportPath() }
-
-type packageList []package_
-
-func (pkgs packageList) ImportPaths() (paths []string) {
-	paths = make([]string, len(pkgs))
-	for i, pkg := range pkgs {
-		paths[i] = pkg.ImportPath()
-	}
-	return
-}
-
-func (pkgs packageList) Remove(pkg package_) packageList { return pkgs.Update(pkg, false) }
-func (pkgs packageList) Insert(pkg package_) packageList { return pkgs.Update(pkg, true) }
-func (pkgs packageList) Update(pkg package_, add bool) packageList {
-	pos, found := slices.BinarySearchFunc(pkgs, pkg, comparePackages)
-	switch {
-	case !found && add:
-		return slices.Insert(pkgs, pos, pkg)
-	case found && !add:
-		return slices.Delete(pkgs, pos, pos+1)
-	}
-	return pkgs
-}
-
-// comparePackages compares two packages and returns -1, 0, or 1 if a is less
-// than, equal to, or greater than b.
-//
-// Packages are ordered similarly to the resolution order of official go doc.
-// Official go doc performs a breadth-first walk of each required module's
-// packages, in lexicographic order of the module import paths.
-//
-// This results in packages being ordered by:
-//
-//  1. Module import path, lexicographically.
-//  2. Package import path depth, ascending. (e.g. "a/b/c" is less than
-//     "a/b/a/a")
-//  3. Lexicographic order of the package import path segments, as
-//     implemented by slices.CompareFunc.
-func comparePackages(a, b package_) int {
-	if cmp := stringsCompare(a.ModulePath(), b.ModulePath()); cmp != 0 {
-		return cmp
-	}
-	if cmp := len(a) - len(b); cmp != 0 {
-		return cmp
-	}
-	return slices.CompareFunc(a, b, stringsCompare)
-}
-
-type Module struct {
-	ImportPath string
-	Version    string
-	Packages   []string `json:",omitempty"`
+func (p packageIndex) MarshalJSON() ([]byte, error) {
+	p.UpdatedAt = time.Now()
+	type _packageIndex packageIndex
+	return json.Marshal(_packageIndex(p))
 }
 
 // Sync the index with the given mods.
@@ -133,6 +115,7 @@ func (p *packageIndex) Update(mods ...Module) {
 		p.add(mod)
 	}
 }
+
 func (p *packageIndex) add(mod Module)    { p.updateModule(mod, true) }
 func (p *packageIndex) remove(mod Module) { p.updateModule(mod, false) }
 func (p *packageIndex) updateModule(mod Module, add bool) {
@@ -171,12 +154,12 @@ func (p *packageIndex) updateModule(mod Module, add bool) {
 }
 
 func (p *packageIndex) removePackage(mod Module, pkgImportPath string) {
-	p.update(mod, pkgImportPath, false)
+	p.updatePackage(mod, pkgImportPath, false)
 }
 func (p *packageIndex) addPackage(mod Module, pkgImportPath string) {
-	p.update(mod, pkgImportPath, true)
+	p.updatePackage(mod, pkgImportPath, true)
 }
-func (p *packageIndex) update(mod Module, pkgImportPath string, add bool) {
+func (p *packageIndex) updatePackage(mod Module, pkgImportPath string, add bool) {
 	mod.Packages = nil // don't need this
 	dlog.Printf("Packages.update(mod:%q, %q, %v)", mod.ImportPath, pkgImportPath, add)
 	pkg := newPackage(mod, pkgImportPath)
@@ -184,7 +167,7 @@ func (p *packageIndex) update(mod Module, pkgImportPath string, add bool) {
 	slash := len(pkgImportPath)
 	for numSlash := 0; slash >= 0; numSlash++ {
 		if len(p.ByNumSlash) == numSlash {
-			p.ByNumSlash = append(p.ByNumSlash, partialList{})
+			p.ByNumSlash = append(p.ByNumSlash, rightPartialList{})
 		}
 		prevSlash := slash
 		slash = strings.LastIndex(pkgImportPath[:slash], "/")
@@ -201,9 +184,19 @@ func (p *packageIndex) update(mod Module, pkgImportPath string, add bool) {
 	}
 }
 
-func (p *partialList) update(parts []string, pkg package_, add bool) {
+// rightPartial is a list of packages which all share the same right segments
+// of their import paths.
+type rightPartial struct {
+	// Parts are the right-most segments of the import paths common to all
+	// Packages.
+	Parts    []string
+	Packages packageList
+}
+type rightPartialList []rightPartial
+
+func (p *rightPartialList) update(parts []string, pkg package_, add bool) {
 	dlog.Printf("partials.update(%q, %q)", parts, pkg.ImportPath())
-	newPart := partial{
+	newPart := rightPartial{
 		Parts:    parts,
 		Packages: packageList{pkg},
 	}
@@ -220,7 +213,9 @@ func (p *partialList) update(parts []string, pkg package_, add bool) {
 		*p = slices.Insert(*p, pos, newPart)
 	}
 }
-func comparePartials(a, b partial) int { return slices.CompareFunc(a.Parts, b.Parts, stringsCompare) }
+func comparePartials(a, b rightPartial) int {
+	return slices.CompareFunc(a.Parts, b.Parts, stringsCompare)
+}
 func stringsCompare(a, b string) int {
 	if a > b {
 		return 1
@@ -230,4 +225,7 @@ func stringsCompare(a, b string) int {
 	}
 	return 0
 }
-func (part *partial) update(pkg package_, add bool) { part.Packages = part.Packages.Update(pkg, add) }
+
+func (part *rightPartial) update(pkg package_, add bool) {
+	part.Packages = part.Packages.Update(pkg, add)
+}

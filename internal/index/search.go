@@ -50,11 +50,11 @@ func (p *packageIndex) Search(path string, opts ...SearchOption) []string {
 	}
 	return pkgs.ImportPaths()
 }
-func (p partialList) search(parts ...string) (pos int, found bool) {
-	return slices.BinarySearchFunc(p, partial{Parts: parts}, comparePartials)
+func (p rightPartialList) search(parts ...string) (pos int, found bool) {
+	return slices.BinarySearchFunc(p, rightPartial{Parts: parts}, comparePartials)
 }
 
-func (p partialList) searchPackages(initial packageList, exact []string, prefixes ...string) (pkgs packageList, pos int) {
+func (p rightPartialList) searchPackages(initial packageList, exact []string, prefixes ...string) (pkgs packageList, pos int) {
 	defer func() {
 		for _, pkg := range pkgs {
 			initial = initial.Insert(pkg)

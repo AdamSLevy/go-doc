@@ -59,10 +59,7 @@ var tests = []packagesTest{{
 func TestPackagesSearch(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.Name, func(t *testing.T) {
-			var pkgIndex packageIndex
-			for _, m := range test.Modules {
-				pkgIndex.Update(m)
-			}
+			pkgIndex := New(test.Modules...)
 
 			buf := bytes.NewBuffer(nil)
 			enc := json.NewEncoder(buf)
