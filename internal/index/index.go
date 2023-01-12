@@ -15,21 +15,9 @@ import (
 )
 
 type Packages interface {
-	Sync(required ...Module)
-
-	// Search for packages matching the given path, which could be a full
-	// import path, or some number of right-most path segments.
-	//
-	// If SearchExact() is passed, then only packages which exactly match
-	// the path segments are returned.
-	//
-	// Otherwise the segments in path are matched as path segment prefixes.
 	Search(path string, opts ...SearchOption) []string
-
-	// Encode the index and write it to w.
-	//
-	// This is the inverse of Decode.
 	Encode(w io.Writer) error
+	Save(path string) error
 }
 
 type packageIndex struct {
@@ -44,19 +32,41 @@ type packageIndex struct {
 
 var _ Packages = (*packageIndex)(nil)
 
-func New() Packages { return &packageIndex{CreatedAt: time.Now()} }
+func New(required ...Module) Packages {
+	pkgIdx := packageIndex{CreatedAt: time.Now()}
+	pkgIdx.sync(required...)
+	return &pkgIdx
+}
+
+func Load(path string, required ...Module) (Packages, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return New(required...), err
+	}
+	defer f.Close()
+	return Decode(f, required...)
+}
 
 // Decode the data from r into a new index.
 //
 // This is the inverse of Packages.Encode.
-func Decode(r io.Reader) (Packages, error) {
+func Decode(r io.Reader, required ...Module) (Packages, error) {
 	var idx packageIndex
 	if err := json.NewDecoder(r).Decode(&idx); err != nil {
 		return nil, err
 	}
+	idx.sync(required...)
 	return &idx, nil
 }
 
+func (pkgIdx packageIndex) Save(path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return pkgIdx.Encode(f)
+}
 func (pkgIdx packageIndex) Encode(w io.Writer) error { return json.NewEncoder(w).Encode(pkgIdx) }
 
 func (pkgIdx packageIndex) MarshalJSON() ([]byte, error) {
@@ -65,7 +75,7 @@ func (pkgIdx packageIndex) MarshalJSON() ([]byte, error) {
 	return json.Marshal(_packageIndex(pkgIdx))
 }
 
-func (pkgIdx *packageIndex) Sync(required ...Module) {
+func (pkgIdx *packageIndex) sync(required ...Module) {
 	progressBar := newProgressBar(len(pkgIdx.Modules), "syncing modules...")
 	knownModules := append(moduleList{}, pkgIdx.Modules...)
 	for _, req := range required {

@@ -116,10 +116,12 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	defer wc.Close()
 	writer = wc
 
+	pkgFinder = newPackageFinder()
+
 	var paths []string
 	var symbol, method string
 	// Loop until something is printed.
-	dirs.Reset()
+	pkgFinder.Reset()
 	for i := 0; ; i++ {
 		buildPackage, userPath, sym, more := parseArgs(flagSet.Args())
 		if i > 0 && !more { // Ignore the "more" bit on the first iteration.
@@ -247,7 +249,7 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 			return pkg, args[0], args[1], false
 		}
 		for {
-			packagePath, ok := findNextPackage(arg)
+			packagePath, ok := pkgFinder.FindNextPackage(arg)
 			if !ok {
 				break
 			}
@@ -314,7 +316,7 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 		// or ivy/value for robpike.io/ivy/value.
 		pkgName := arg[:period]
 		for {
-			path, ok := findNextPackage(pkgName)
+			path, ok := pkgFinder.FindNextPackage(pkgName)
 			if !ok {
 				break
 			}
@@ -322,7 +324,7 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 				return pkg, arg[0:period], symbol, true
 			}
 		}
-		dirs.Reset() // Next iteration of for loop must scan all the directories again.
+		pkgFinder.Reset() // Next iteration of for loop must scan all the directories again.
 	}
 	// If it has a slash, we've failed.
 	if slash >= 0 && !completion.Requested {

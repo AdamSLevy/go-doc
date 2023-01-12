@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 
-	"aslevy.com/go-doc/internal/cache"
 	"aslevy.com/go-doc/internal/completion"
 	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/godoc"
@@ -28,9 +27,6 @@ func addAllFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&godoc.NoImports, "imports-off", false, "do not show the imports for referenced packages")
 	fs.BoolVar(&godoc.ShowStdlib, "imports-stdlib", false, "show imports for referenced stdlib packages")
 	fs.BoolVar(&godoc.NoLocation, "location-off", false, "do not show symbol file location i.e. // /path/to/circle.go +314")
-
-	fs.BoolVar(&cache.Rebuild, "cache-rebuild", false, "rebuild the cache")
-	fs.BoolVar(&cache.Disabled, "cache-off", false, "do not use the cache")
 
 	fs.BoolVar(&pager.Disabled, "pager-off", false, "don't use a pager")
 	fs.BoolVar(&open.Requested, "open", false, "open the file containing the symbol with GODOC_EDITOR or EDITOR")
