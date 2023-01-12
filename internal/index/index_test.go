@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,7 +60,10 @@ var tests = []packagesTest{{
 func TestPackagesSearch(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.Name, func(t *testing.T) {
-			pkgIndex := New(test.Modules...)
+			pkgIndex := New()
+			outdated := pkgIndex.Sync(test.Modules)
+			require.Equal(t, test.Modules, outdated)
+			pkgIndex.Update(test.Modules)
 
 			buf := bytes.NewBuffer(nil)
 			enc := json.NewEncoder(buf)
@@ -73,7 +77,7 @@ func TestPackagesSearch(t *testing.T) {
 					for _, search := range searchTest.Searches {
 						t.Run(search, func(t *testing.T) {
 							pkgs := pkgIndex.Search(search, searchTest.Opts...)
-							require.Equal(t, searchTest.Expected, pkgs)
+							require.Equal(t, searchTest.Expected, ToImportPaths(pkgs))
 						})
 					}
 				})
@@ -83,12 +87,10 @@ func TestPackagesSearch(t *testing.T) {
 }
 
 func newModule(importPath, version string, packages ...string) Module {
-	for i := range packages {
-		packages[i] = path.Join(importPath, packages[i])
+	mod := NewModule(importPath, strings.Join([]string{importPath, version}, "@"))
+	for _, pkg := range packages {
+		pkgPath := path.Join(importPath, pkg)
+		mod.AddPackage(pkgPath, pkgPath)
 	}
-	return Module{
-		ImportPath: importPath,
-		Version:    version,
-		Packages:   packages,
-	}
+	return mod
 }

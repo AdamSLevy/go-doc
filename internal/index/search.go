@@ -10,9 +10,14 @@ import (
 )
 
 type SearchOption func(*searchOptions)
-type searchOptions struct{ Exact bool }
+type searchOptions struct {
+	Exact bool
+	Dirs  bool // Return the package directories instead of import paths.
+}
 
+func ReturnDirs() SearchOption  { return func(o *searchOptions) { o.Dirs = true } }
 func SearchExact() SearchOption { return func(o *searchOptions) { o.Exact = true } }
+
 func WithSearchOptions(opts ...SearchOption) SearchOption {
 	return func(o *searchOptions) {
 		for _, opt := range opts {
@@ -27,10 +32,10 @@ func newSearchOptions(opts ...SearchOption) searchOptions {
 	return o
 }
 
-func (p *packageIndex) Search(path string, opts ...SearchOption) []string {
+func (p packageIndex) Search(path string, opts ...SearchOption) []string {
 	parts := strings.Split(path, "/")
 	numSlash := len(parts) - 1
-	if numSlash >= len(p.ByNumSlash) {
+	if numSlash >= len(p.Partials) {
 		// We don't have any packages with this many slashes.
 		return nil
 	}
@@ -42,26 +47,20 @@ func (p *packageIndex) Search(path string, opts ...SearchOption) []string {
 		parts = nil
 	}
 	var pkgs packageList
-	for _, partials := range p.ByNumSlash[numSlash:] {
-		pkgs, _ = partials.searchPackages(pkgs, exactParts, parts...)
+	for _, partials := range p.Partials[numSlash:] {
+		partials.searchPackages(&pkgs, exactParts, parts...)
 		if o.Exact {
 			break
 		}
 	}
+	if o.Dirs {
+		return pkgs.Dirs(p.Modules)
+	}
 	return pkgs.ImportPaths()
 }
-func (p rightPartialList) search(parts ...string) (pos int, found bool) {
-	return slices.BinarySearchFunc(p, rightPartial{Parts: parts}, comparePartials)
-}
 
-func (p rightPartialList) searchPackages(initial packageList, exact []string, prefixes ...string) (pkgs packageList, pos int) {
-	defer func() {
-		for _, pkg := range pkgs {
-			initial = initial.Insert(pkg)
-		}
-		pkgs = initial
-		dlog.Printf("searchPackages(%q, %q): %v", exact, prefixes, pkgs)
-	}()
+func (p rightPartialList) searchPackages(matches *packageList, exact []string, prefixes ...string) (pos int) {
+	defer func() { dlog.Printf("searchPackages(%q, %q, %q): %v", matches, exact, prefixes, pos) }()
 
 	var prefix string
 	var prefixID int
@@ -78,7 +77,7 @@ func (p rightPartialList) searchPackages(initial packageList, exact []string, pr
 		// We aren't searching for prefixes.
 		if found {
 			// We have an exact match.
-			pkgs = p[pos].Packages
+			matches.Insert(p[pos].Packages...)
 		}
 		return
 	}
@@ -88,13 +87,13 @@ func (p rightPartialList) searchPackages(initial packageList, exact []string, pr
 	for pos < len(p) {
 		partial := p[pos]
 
-		cmpExact := slices.CompareFunc(partial.Parts[:prefixID], exact, stringsCompare)
+		cmpExact := slices.CompareFunc(partial.CommonParts[:prefixID], exact, stringsCompare)
 		if cmpExact > 0 {
 			// We've gone past the exact match.
 			return
 		}
 
-		hasPrefix := strings.HasPrefix(partial.Parts[prefixID], prefix) // Will always be true if prefix is empty.
+		hasPrefix := strings.HasPrefix(partial.CommonParts[prefixID], prefix) // Will always be true if prefix is empty.
 		if !hasPrefix {
 			// We've gone past the partials which match the first
 			// prefix.
@@ -103,15 +102,17 @@ func (p rightPartialList) searchPackages(initial packageList, exact []string, pr
 
 		// This partial matches the exact parts and the first prefix.
 
-		exact := append(exact, partial.Parts[prefixID])
+		exact := append(exact, partial.CommonParts[prefixID])
 		prefixes := prefixes[1:]
-		var searchPos int
-		pkgs, searchPos = p[pos:].searchPackages(pkgs, exact, prefixes...)
+		searchPos := p[pos:].searchPackages(matches, exact, prefixes...)
 		pos += searchPos + 1
 
 		// We need to search forward to the next prefix match.
-		_, searchPos = p[pos:].searchPackages(nil, exact, string(unicode.MaxRune))
+		searchPos = p[pos:].searchPackages(nil, exact, string(unicode.MaxRune))
 		pos += searchPos
 	}
 	return
+}
+func (p rightPartialList) search(parts ...string) (pos int, found bool) {
+	return slices.BinarySearchFunc(p, rightPartial{CommonParts: parts}, comparePartials)
 }

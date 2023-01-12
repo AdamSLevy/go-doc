@@ -37,7 +37,7 @@ func Pager(output io.Writer) (io.WriteCloser, error) {
 	}
 
 	fallback := ioutil.WriteNopCloser(output)
-	if Disabled || !isTTY(output) || open.Requested {
+	if Disabled || !IsTTY(output) || open.Requested {
 		return fallback, nil
 	}
 
@@ -77,9 +77,9 @@ func getPagerEnv() string {
 	return "less"
 }
 
-// isTTY returns true if output is a terminal, as opposed to a pipe, or some
+// IsTTY returns true if output is a terminal, as opposed to a pipe, or some
 // other buffer.
-func isTTY(output io.Writer) bool {
+func IsTTY(output io.Writer) bool {
 	f, ok := output.(*os.File)
 	if !ok {
 		return false
