@@ -32,10 +32,10 @@ func newSearchOptions(opts ...SearchOption) searchOptions {
 	return o
 }
 
-func (p packageIndex) Search(path string, opts ...SearchOption) []string {
+func (p Packages) Search(path string, opts ...SearchOption) []string {
 	parts := strings.Split(path, "/")
 	numSlash := len(parts) - 1
-	if numSlash >= len(p.Partials) {
+	if numSlash >= len(p.partials) {
 		// We don't have any packages with this many slashes.
 		return nil
 	}
@@ -47,14 +47,14 @@ func (p packageIndex) Search(path string, opts ...SearchOption) []string {
 		parts = nil
 	}
 	var pkgs packageList
-	for _, partials := range p.Partials[numSlash:] {
+	for _, partials := range p.partials[numSlash:] {
 		partials.searchPackages(&pkgs, exactParts, parts...)
 		if o.Exact {
 			break
 		}
 	}
 	if o.Dirs {
-		return pkgs.Dirs(p.Modules)
+		return pkgs.Dirs(p.modules)
 	}
 	return pkgs.ImportPaths()
 }

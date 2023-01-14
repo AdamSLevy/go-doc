@@ -6,7 +6,66 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"aslevy.com/go-doc/internal/outfmt"
+	"aslevy.com/go-doc/internal/pager"
+	"github.com/schollz/progressbar/v3"
+	"golang.org/x/exp/slices"
 )
+
+func (pkgIdx *Packages) sync(required ...Module) {
+	defer func() { pkgIdx.updatedAt = time.Now() }()
+
+	progressBar := newProgressBar(len(pkgIdx.modules), "syncing modules...")
+
+	unknown := append(moduleList{}, pkgIdx.modules...)
+	for _, req := range required {
+		var mod *Module
+		pos, found := pkgIdx.modules.Search(req)
+		if found {
+			unknown.Remove(req)
+		} else {
+			pkgIdx.modules = slices.Insert(pkgIdx.modules, pos, req)
+		}
+		mod = &pkgIdx.modules[pos]
+		if mod.Dir != req.Dir {
+			mod.updatedAt = time.Time{} // force rescan
+			mod.Dir = req.Dir
+		}
+		added, removed := mod.sync()
+		pkgIdx.syncPartials(*mod, added, removed)
+		progressBar.Add(1)
+	}
+
+	pkgIdx.modules.Remove(unknown...)
+	for _, mod := range unknown {
+		pkgIdx.syncPartials(mod, nil, mod.packages)
+		progressBar.Add(1)
+	}
+	progressBar.Finish()
+	progressBar.Clear()
+}
+func (pkgIdx *Packages) syncPartials(mod Module, add, remove packageList) {
+	modParts := strings.Split(mod.ImportPath, "/")
+	for _, pkg := range remove {
+		pkgIdx.partials.Remove(modParts, pkg)
+	}
+	for _, pkg := range add {
+		pkgIdx.partials.Insert(modParts, pkg)
+	}
+}
+func newProgressBar(total int, description string) *progressbar.ProgressBar {
+	termMode := outfmt.Format == outfmt.Term && pager.IsTTY(os.Stderr)
+	return progressbar.NewOptions(total,
+		progressbar.OptionSetDescription("package index: "+description),
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionShowCount(),               // show current count e.g. 3/5
+		progressbar.OptionSetRenderBlankState(true), // render at 0%
+		progressbar.OptionClearOnFinish(),           // clear bar when done
+		progressbar.OptionUseANSICodes(termMode),
+		progressbar.OptionEnableColorCodes(termMode),
+	)
+}
 
 func (mod *Module) sync() (added, removed packageList) {
 	defer func() {
