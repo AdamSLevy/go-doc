@@ -8,20 +8,54 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The point of this test is to make sure that the calldepth is correct for
-// both New Loggers and the defaultLogger.
-func TestLoggerShortfile(t *testing.T) {
-	buf := bytes.NewBuffer(nil)
-	lgr := New(buf, "", log.Lshortfile)
-	lgr.Enable()
-	lgr.Println()
-	t.Log("new logger output:", buf.String())
-	require.Contains(t, buf.String(), "log_test.go")
-	buf.Reset()
+func TestLogger(t *testing.T) {
+	prefix := "prefix"
+	line := "abcdef"
+	lgr := New(nil, prefix, log.Lshortfile)
+	childPrefix := "child"
+	child := lgr.Child(childPrefix)
+	defChild := Child(childPrefix)
 
-	defaultLogger.output = buf
+	for _, test := range []struct {
+		name string
+		Logger
+		prefix string
+	}{
+		{"New", lgr, prefix},
+		{"Logger.Child", child, prefix + ":" + childPrefix},
+		{"Child", defChild, "debug:" + childPrefix},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			buf := bytes.NewBuffer(nil)
+			lgr := test.Logger
+			lgr.SetOutput(buf)
+
+			lgr.Println(line)
+			require := require.New(t)
+			require.Empty(buf.String(), "output should be empty prior to calling Enable()")
+
+			lgr.Enable()
+			lgr.Println(line)
+			output := buf.String()
+			require.Contains(output, "log_test.go")
+			require.Contains(output, test.prefix+": ")
+			require.Contains(output, line)
+		})
+	}
+}
+func TestDefaultLogger(t *testing.T) {
+	require := require.New(t)
+	buf := bytes.NewBuffer(nil)
+	SetOutput(buf)
+	prefix := "debug"
+	line := "abcdef"
+	Println(line)
+	require.Empty(buf.String(), "output should be empty prior to calling Enable()")
+
 	Enable()
-	Println()
-	t.Log("default logger output:", buf.String())
-	require.Contains(t, buf.String(), "log_test.go")
+	Println(line)
+	output := buf.String()
+	require.Contains(output, "log_test.go")
+	require.Contains(output, prefix+": ")
+	require.Contains(output, line)
 }

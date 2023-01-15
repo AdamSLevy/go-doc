@@ -13,20 +13,29 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/davecgh/go-spew/spew"
 )
 
-const defaultCallDepth = 1
+const (
+	// This ensures that the corrent file and line number is used when
+	// logging.
+	loggerCallDepth = 1
 
-var defaultLogger = newLogger(os.Stderr, "debug: ", log.Lshortfile, defaultCallDepth+1)
+	// The defaultLogger methods are accessed through an additional
+	// function call.
+	defaultLoggerCallDepth = loggerCallDepth + 1
+)
+
+var defaultLogger = newLogger(os.Stderr, "debug", log.Lshortfile, defaultLoggerCallDepth)
 
 // SetOutput overrides the output for the top level print functions to w. By
 // default the output is os.Stderr.
 //
 // This function must be called prior to calling Enable for it to take effect.
-func SetOutput(w io.Writer) { defaultLogger.output = w }
+func SetOutput(w io.Writer) { defaultLogger.SetOutput(w) }
 
 // Enable debug logging.
 //
@@ -47,15 +56,19 @@ func Print(v ...any)                 { defaultLogger.Print(v...) }
 func Printf(format string, v ...any) { defaultLogger.Printf(format, v...) }
 func Println(v ...any)               { defaultLogger.Println(v...) }
 func Dump(v ...any)                  { defaultLogger.Dump(v...) }
+func Child(prefix string) Logger     { return defaultLogger.Child(prefix) }
 
 // Logger is a simple debug logger API. It will not produce output until Enable
 // is first called.
 type Logger interface {
+	Child(prefix string) Logger
+	SetOutput(w io.Writer)
+	Enable()
+
 	Print(...any)
 	Printf(string, ...any)
 	Println(...any)
 	Dump(...any)
-	Enable()
 }
 
 type logger struct {
@@ -64,19 +77,24 @@ type logger struct {
 	println func(...any)
 	dump    func(...any)
 
-	once      sync.Once
 	output    io.Writer
 	prefix    string
 	flag      int
 	calldepth int
+
+	once sync.Once
+	lgr  *log.Logger
 }
 
 // New returns a new Logger that does not write to output until after
 // Logger.Enable is first called.
 func New(output io.Writer, prefix string, flag int) Logger {
-	return newLogger(output, prefix, flag, defaultCallDepth)
+	return newLogger(output, prefix, flag, loggerCallDepth)
 }
 func newLogger(output io.Writer, prefix string, flag, calldepth int) *logger {
+	if prefix != "" {
+		prefix = prefix + ": "
+	}
 	return &logger{
 		print:   nop,
 		printf:  nopf,
@@ -92,15 +110,28 @@ func newLogger(output io.Writer, prefix string, flag, calldepth int) *logger {
 func nop(...any)          {}
 func nopf(string, ...any) {}
 
+func (l *logger) Child(child string) Logger {
+	prefix := l.prefix
+	if child != "" {
+		prefix = strings.TrimSpace(prefix) + child
+	}
+	return newLogger(l.output, prefix, l.flag, loggerCallDepth)
+}
+
+func (l *logger) SetOutput(w io.Writer) {
+	if l.lgr != nil {
+		l.lgr.SetOutput(w)
+	}
+	l.output = w
+}
 func (l *logger) Enable() {
 	l.once.Do(func() {
-		lgr := log.New(l.output, l.prefix, l.flag)
-		l.print = func(v ...any) { lgr.Output(l.calldepth, fmt.Sprint(v...)) }
-		l.printf = func(format string, v ...any) { lgr.Output(l.calldepth, fmt.Sprintf(format, v...)) }
-		l.println = func(v ...any) { lgr.Output(l.calldepth, fmt.Sprintln(v...)) }
-		lgr.Output(l.calldepth+2, "debug logging enabled")
+		l.lgr = log.New(l.output, l.prefix, l.flag)
+		l.print = func(v ...any) { l.lgr.Output(l.calldepth, fmt.Sprint(v...)) }
+		l.printf = func(format string, v ...any) { l.lgr.Output(l.calldepth, fmt.Sprintf(format, v...)) }
+		l.println = func(v ...any) { l.lgr.Output(l.calldepth, fmt.Sprintln(v...)) }
 		spew := spew.NewDefaultConfig()
-		l.dump = spew.Dump
+		l.dump = func(v ...any) { spew.Fdump(l.output, v...) }
 	})
 }
 func (l *logger) Print(v ...any)                 { l.print(v...) }
