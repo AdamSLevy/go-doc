@@ -6,8 +6,11 @@ import (
 	"os"
 	"time"
 
+	"aslevy.com/go-doc/internal/dlog"
 	"github.com/schollz/progressbar/v3"
 )
+
+var debug = dlog.Child("index")
 
 type Packages struct {
 	modules  moduleList

@@ -5,8 +5,6 @@ import (
 	"unicode"
 
 	"golang.org/x/exp/slices"
-
-	"aslevy.com/go-doc/internal/dlog"
 )
 
 type SearchOption func(*searchOptions)
@@ -60,7 +58,7 @@ func (p Packages) Search(path string, opts ...SearchOption) []string {
 }
 
 func (p rightPartialList) searchPackages(matches *packageList, exact []string, prefixes ...string) (pos int) {
-	defer func() { dlog.Printf("searchPackages(%q, %q, %q): %v", matches, exact, prefixes, pos) }()
+	defer func() { debug.Printf("searchPackages(%q, %q, %q): %v", matches, exact, prefixes, pos) }()
 
 	var prefix string
 	var prefixID int

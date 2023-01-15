@@ -33,11 +33,6 @@ type moduleList []Module
 
 func (modList moduleList) MarshalJSON() ([]byte, error) { return omitEmptyElementsMarshalJSON(modList) }
 
-// func (modList *moduleList) IsOutdated(current Module) (outdated, found bool) {
-// 	pos, found := slices.BinarySearchFunc(*modList, current, compareModules)
-// 	return !found || (*modList)[pos].Version != current.Version || (*modList)[pos].Dir != current.Dir, found
-// }
-
 func (modList *moduleList) Remove(mods ...Module) { modList.Update(false, mods...) }
 func (modList *moduleList) Insert(mods ...Module) { modList.Update(true, mods...) }
 func (modList *moduleList) Update(add bool, mods ...Module) {

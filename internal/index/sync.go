@@ -68,6 +68,7 @@ func newProgressBar(total int, description string) *progressbar.ProgressBar {
 }
 
 func (mod *Module) sync() (added, removed packageList) {
+	debug.Printf("syncing module %q in %s", mod.ImportPath, mod.Dir)
 	defer func() {
 		mod.packages.Remove(removed...)
 		mod.packages.Insert(added...)
@@ -84,32 +85,26 @@ func (mod *Module) sync() (added, removed packageList) {
 		ImportPathParts: []string{mod.ImportPath},
 	}}
 
+	// Assume everything is removed...
+	removed = append(removed, mod.packages...)
+
 	for len(next) > 0 {
 		this, next = next, this[0:0]
 		for _, pkg := range this {
 			dir := pkg.Dir(*mod)
+			debug.Printf("scanning package %q in %s", pkg, dir)
 			fd, err := os.Open(dir)
 			if err != nil {
 				log.Print(err)
 				continue
 			}
-			info, err := fd.Stat()
-			if err != nil {
-				log.Print(err)
-				continue
-			}
-			if mod.updatedAt.After(info.ModTime()) {
-				// This directory and all subdirectories are
-				// unchanged since the last time we scanned.
-				continue
-			}
+
 			entries, err := fd.Readdir(0)
 			fd.Close()
 			if err != nil {
 				log.Print(err)
 				continue
 			}
-			knownChildren := append(packageList{}, mod.packages.ChildrenOf(pkg)...)
 			hasGoFiles := false
 			for _, entry := range entries {
 				name := entry.Name()
@@ -139,21 +134,18 @@ func (mod *Module) sync() (added, removed packageList) {
 				// Remember this (fully qualified) directory for the next pass.
 				pkg := pkg
 				pkg.ImportPathParts = append(pkg.ImportPathParts, name)
+				debug.Printf("queuing %s", pkg)
 				next = append(next, pkg)
-				knownChildren.Remove(pkg)
 			}
-			// remaining known children have been removed
-			for _, child := range knownChildren {
-				removed.Insert(mod.packages.DescendentsOf(child)...)
-			}
-			_, found := mod.packages.Search(pkg)
-			switch {
-			case hasGoFiles && !found:
-				// New package...
-				added.Insert(pkg)
-			case !hasGoFiles && found:
-				// No longer is a package...
-				removed.Insert(pkg)
+			if hasGoFiles {
+				pos, found := removed.Search(pkg)
+				if !found {
+					debug.Printf("adding package %q in %s", pkg, dir)
+					added.Insert(pkg)
+				} else {
+					debug.Printf("keeping package %q in %s", pkg, dir)
+					removed = slices.Delete(removed, pos, pos+1)
+				}
 			}
 		}
 	}
