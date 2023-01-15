@@ -59,8 +59,38 @@ func (modList moduleList) Search(mod Module) (pos int, found bool) {
 	return slices.BinarySearchFunc(modList, mod, compareModules)
 }
 func compareModules(a, b Module) int {
+	if cmp := compareModuleClass(a, b); cmp != 0 {
+		return cmp
+	}
 	return stringsCompare(a.ImportPath, b.ImportPath)
 }
+func compareModuleClass(a, b Module) int { return a.class() - b.class() }
+
+const (
+	modStdlib int = iota
+	modLocal
+	modVendor
+	modRequired
+)
+
+func (mod Module) class() int {
+	switch mod.ImportPath {
+	case "", "cmd":
+		return modStdlib
+	}
+	if _, hasVersion := mod.version(); hasVersion {
+		return modRequired
+	}
+	if mod.isVendor() {
+		return modVendor
+	}
+	return modLocal
+}
+func (mod Module) version() (string, bool) {
+	_, version, found := strings.Cut(filepath.Base(mod.Dir), "@")
+	return version, found
+}
+func (mod Module) isVendor() bool { return filepath.Base(mod.Dir) == "vendor" }
 
 // _Package is an internal representation of a package used for sorting.
 type _Package struct {
