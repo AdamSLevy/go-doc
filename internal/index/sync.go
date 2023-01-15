@@ -45,6 +45,9 @@ func (pkgIdx *Packages) sync(required ...Module) {
 	progressBar.Finish()
 	progressBar.Clear()
 }
+func (pkgIdx *Packages) needsSync(mod Module) bool {
+	return false
+}
 func (pkgIdx *Packages) syncPartials(mod Module, add, remove packageList) {
 	modParts := strings.Split(mod.ImportPath, "/")
 	for _, pkg := range remove {
@@ -81,9 +84,7 @@ func (mod *Module) sync() (added, removed packageList) {
 	// this is the queue of directories to examine in this pass.
 	this := []_Package{}
 	// next is the queue of directories to examine in the next pass.
-	next := []_Package{{
-		ImportPathParts: []string{mod.ImportPath},
-	}}
+	next := []_Package{newPackage(*mod, mod.ImportPath)}
 
 	// Assume everything is removed...
 	removed = append(removed, mod.packages...)

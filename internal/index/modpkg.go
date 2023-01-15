@@ -5,15 +5,17 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode"
 
 	"golang.org/x/exp/slices"
+
+	islices "aslevy.com/go-doc/internal/slices"
 )
 
 // Module represents a Go module and its packages.
 type Module struct {
 	ImportPath string
 	Dir        string // Location of the module on disk.
+	class      int
 
 	packages  packageList
 	updatedAt time.Time
@@ -23,9 +25,28 @@ func NewModule(importPath, dir string) Module {
 	mod := Module{
 		ImportPath: importPath,
 		Dir:        dir,
+		class:      parseClass(importPath, dir),
 	}
 	return mod
 }
+func parseClass(importPath, dir string) int {
+	switch importPath {
+	case "", "cmd":
+		return classStdlib
+	}
+	if _, hasVersion := parseVersion(dir); hasVersion {
+		return classRequired
+	}
+	if isVendor(dir) {
+		return classVendor
+	}
+	return classLocal
+}
+func parseVersion(dir string) (string, bool) {
+	_, version, found := strings.Cut(filepath.Base(dir), "@")
+	return version, found
+}
+func isVendor(dir string) bool { return filepath.Base(dir) == "vendor" }
 
 func (mod Module) shouldOmit() bool { return len(mod.packages) == 0 }
 
@@ -47,50 +68,29 @@ func (modList *moduleList) Update(add bool, mods ...Module) {
 	}
 }
 func (modList *moduleList) update(add bool, mod Module) {
-	pos, found := modList.Search(mod)
-	switch {
-	case add && !found:
-		*modList = slices.Insert(*modList, pos, mod)
-	case !add && found:
-		*modList = slices.Delete(*modList, pos, pos+1)
+	opts := []islices.Option[Module]{islices.WithKeepOriginal[Module]()}
+	if !add {
+		opts = append(opts, islices.WithDelete[Module]())
 	}
+	*modList, _, _ = islices.UpdateSorted(*modList, mod, compareModules, opts...)
 }
 func (modList moduleList) Search(mod Module) (pos int, found bool) {
 	return slices.BinarySearchFunc(modList, mod, compareModules)
 }
 func compareModules(a, b Module) int {
-	if cmp := compareModuleClass(a, b); cmp != 0 {
+	if cmp := compareClasses(a.class, b.class); cmp != 0 {
 		return cmp
 	}
 	return stringsCompare(a.ImportPath, b.ImportPath)
 }
-func compareModuleClass(a, b Module) int { return a.class() - b.class() }
+func compareClasses(a, b int) int { return a - b }
 
 const (
-	modStdlib int = iota
-	modLocal
-	modVendor
-	modRequired
+	classStdlib int = iota
+	classLocal
+	classVendor
+	classRequired
 )
-
-func (mod Module) class() int {
-	switch mod.ImportPath {
-	case "", "cmd":
-		return modStdlib
-	}
-	if _, hasVersion := mod.version(); hasVersion {
-		return modRequired
-	}
-	if mod.isVendor() {
-		return modVendor
-	}
-	return modLocal
-}
-func (mod Module) version() (string, bool) {
-	_, version, found := strings.Cut(filepath.Base(mod.Dir), "@")
-	return version, found
-}
-func (mod Module) isVendor() bool { return filepath.Base(mod.Dir) == "vendor" }
 
 // _Package is an internal representation of a package used for sorting.
 type _Package struct {
@@ -105,10 +105,14 @@ type _Package struct {
 	//
 	// See comparePackages for the rationale behind this representation.
 	ImportPathParts []string
+	Class           int
 }
 
 func newPackage(mod Module, importPath string) _Package {
-	return _Package{ImportPathParts: parseImportPathParts(mod, importPath)}
+	return _Package{
+		ImportPathParts: parseImportPathParts(mod, importPath),
+		Class:           mod.class,
+	}
 }
 func parseImportPathParts(mod Module, pkgImportPath string) []string {
 	relPath := strings.TrimPrefix(pkgImportPath, mod.ImportPath)
@@ -165,84 +169,14 @@ func (pkgList *packageList) Update(add bool, pkgs ..._Package) {
 	}
 }
 func (pkgList *packageList) update(add bool, pkg _Package) {
-	pos, found := pkgList.Search(pkg)
-	switch {
-	case add && !found:
-		*pkgList = slices.Insert(*pkgList, pos, pkg)
-	case !add && found:
-		*pkgList = slices.Delete(*pkgList, pos, pos+1)
+	opts := []islices.Option[_Package]{islices.WithKeepOriginal[_Package]()}
+	if !add {
+		opts = append(opts, islices.WithDelete[_Package]())
 	}
+	*pkgList, _, _ = islices.UpdateSorted(*pkgList, pkg, comparePackages, opts...)
 }
 func (pkgList packageList) Search(pkg _Package) (pos int, found bool) {
 	return slices.BinarySearchFunc(pkgList, pkg, comparePackages)
-}
-
-func (pkgList *packageList) RemoveDescendentsOf(pkg _Package) {
-	first, found := pkgList.FirstChildOf(pkg)
-	if !found {
-		// No children
-		return
-	}
-	afterLast := (*pkgList)[first:].AfterDescendentsOf(pkg)
-	*pkgList = slices.Delete(*pkgList, first, first+afterLast)
-}
-
-func (pkgList packageList) ChildrenOf(parent _Package) packageList {
-	first, found := pkgList.FirstChildOf(parent)
-	if !found {
-		return nil
-	}
-	afterLast := pkgList[first:].AfterChildrenOf(parent)
-	return pkgList[first : first+afterLast]
-}
-func (pkgList packageList) DescendentsOf(parent _Package) packageList {
-	first, found := pkgList.FirstChildOf(parent)
-	if !found {
-		return nil
-	}
-	afterLast := pkgList[first:].AfterDescendentsOf(parent)
-	return pkgList[first : first+afterLast]
-}
-
-func (pkgList packageList) FirstChildOf(parent _Package) (pos int, found bool) {
-	child := parent
-	child.ImportPathParts = append(child.ImportPathParts, "")
-	// We should never have a package with an empty import path part, so
-	// found should always be false here. But set and return the found
-	// value anyway from this search just in case.
-	pos, found = pkgList.Search(child)
-	if pos == len(pkgList) {
-		// No children
-		return
-	}
-	found = pkgList[pos].IsDescendentOf(parent)
-	return
-}
-func (pkgList packageList) AfterChildrenOf(parent _Package) (pos int) {
-	child := parent
-	child.ImportPathParts = append(child.ImportPathParts, string(unicode.MaxRune))
-	pos, _ = pkgList.Search(child)
-	return
-}
-func (pkgList packageList) AfterDescendentsOf(parent _Package) (pos int) {
-	child := parent
-	for child.IsDescendentOf(parent) {
-		child.ImportPathParts = append(child.ImportPathParts, string(unicode.MaxRune))
-		pos += pkgList[pos:].AfterChildrenOf(child)
-		if pos >= len(pkgList) {
-			return
-		}
-		child = pkgList[pos]
-	}
-	return
-}
-
-func (child _Package) IsDescendentOf(pkg _Package) bool {
-	if len(child.ImportPathParts) < len(pkg.ImportPathParts) {
-		return false
-	}
-	child.ImportPathParts = child.ImportPathParts[:len(pkg.ImportPathParts)]
-	return comparePackages(pkg, child) == 0
 }
 
 // comparePackages compares two packages and returns -1, 0, or 1 if a is less
@@ -254,20 +188,25 @@ func (child _Package) IsDescendentOf(pkg _Package) bool {
 //
 // This results in packages being ordered by:
 //
-//  1. Module import path, lexicographically.
-//  2. Package import path depth, ascending. (e.g. "a/b/c" is less than
+//  1. Module Class (stdlib, local, vendor, required)
+//  2. Module import path, lexicographically.
+//  3. Package import path depth, ascending. (e.g. "a/b/c" is less than
 //     "a/b/a/a")
-//  3. Lexicographic order of the package import path segments, as
+//  4. Lexicographic order of the package import path segments, as
 //     implemented by slices.CompareFunc.
 func comparePackages(a, b _Package) int {
-	// 1. Module import path, lexicographically.
+	//  1. Module Class (stdlib, local, vendor, required)
+	if cmp := compareClasses(a.Class, b.Class); cmp != 0 {
+		return cmp
+	}
+	// 2. Module import path, lexicographically.
 	if cmp := stringsCompare(a.ModulePath(), b.ModulePath()); cmp != 0 {
 		return cmp
 	}
-	// 2. Package import path depth, ascending.
+	// 3. Package import path depth, ascending.
 	if cmp := len(a.ImportPathParts) - len(b.ImportPathParts); cmp != 0 {
 		return cmp
 	}
-	// 3. Lexicographic order of the package import path segments.
+	// 4. Lexicographic order of the package import path segments.
 	return slices.CompareFunc(a.ImportPathParts, b.ImportPathParts, stringsCompare)
 }

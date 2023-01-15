@@ -6,6 +6,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	"aslevy.com/go-doc/internal/dlog"
+	islices "aslevy.com/go-doc/internal/slices"
 )
 
 // rightPartial groups packages which share the same right-most path components
@@ -21,7 +22,7 @@ func newRightPartial(parts []string, pkgs ..._Package) rightPartial {
 	return rightPartial{CommonParts: parts, Packages: pkgs}
 }
 
-func (part *rightPartial) updatePackage(add bool, pkgs ..._Package) {
+func (part *rightPartial) updatePackages(add bool, pkgs ..._Package) {
 	part.Packages.Update(add, pkgs...)
 }
 func (p rightPartial) shouldOmit() bool { return len(p.Packages) == 0 }
@@ -36,15 +37,9 @@ type rightPartialList []rightPartial
 func (p *rightPartialList) updatePartial(add bool, parts []string, pkgs ..._Package) {
 	dlog.Printf("partials.update(%q, %q)", parts, pkgs)
 	newPart := newRightPartial(parts, pkgs...)
-	pos, found := slices.BinarySearchFunc(*p, newPart, comparePartials)
-	if found {
-		partial := &(*p)[pos]
-		partial.updatePackage(add, pkgs...)
-		return
-	}
-	if add {
-		*p = slices.Insert(*p, pos, newPart)
-	}
+	*p, _, _ = islices.UpdateSorted(*p, newPart, comparePartials, islices.WithReplaceFunc[rightPartial](func(existing, _ *rightPartial) {
+		existing.updatePackages(add, pkgs...)
+	}))
 }
 func comparePartials(a, b rightPartial) int {
 	return slices.CompareFunc(a.CommonParts, b.CommonParts, stringsCompare)
