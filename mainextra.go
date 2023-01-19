@@ -15,7 +15,7 @@ type packageFinder struct {
 	search  string
 	matches []string
 	offset  int
-	pkgIdx  index.Packages
+	pkgIdx  *index.Packages
 }
 
 var pkgFinder *packageFinder
@@ -50,7 +50,7 @@ func newPackageFinder() *packageFinder {
 	return &packageFinder{pkgIdx: packageIndex()}
 }
 
-func packageIndex() index.Packages {
+func packageIndex() *index.Packages {
 	path := indexCachePath()
 	if err := os.Mkdir(filepath.Dir(path), 0755); err != nil && !os.IsExist(err) {
 		dlog.Printf("failed to create index cache dir: %v", err)

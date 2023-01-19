@@ -14,11 +14,14 @@ var debug = dlog.Child("index")
 
 type Packages struct {
 	modules  moduleList
-	partials rightPartialListsByNumSlash
+	partials rightPartialIndex
 
-	createdAt    time.Time
-	updatedAt    time.Time
+	createdAt time.Time
+	updatedAt time.Time
+
 	syncProgress *progressbar.ProgressBar
+	forceSync    bool
+	neverSync    bool
 }
 
 func New(required ...Module) *Packages {
@@ -62,7 +65,7 @@ func (pkgIdx Packages) Encode(w io.Writer) error { return json.NewEncoder(w).Enc
 func (pkgIdx Packages) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Modules   moduleList
-		Partials  rightPartialListsByNumSlash
+		Partials  rightPartialIndex
 		CreatedAt time.Time
 		UpdatedAt time.Time
 	}{

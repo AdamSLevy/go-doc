@@ -14,33 +14,37 @@ import (
 // Module represents a Go module and its packages.
 type Module struct {
 	ImportPath string
-	Dir        string // Location of the module on disk.
-	class      int
+	Dir        string // Location of the module on the filesystem.
+
+	class  class // classStdlib, classRequired, or classLocal.
+	vendor bool  // True if Dir is the vendor directory, or a subdirectory.
 
 	packages  packageList
 	updatedAt time.Time
 }
 
 func NewModule(importPath, dir string) Module {
+	class, vendor := parseClassVendor(importPath, dir)
 	mod := Module{
 		ImportPath: importPath,
 		Dir:        dir,
-		class:      parseClass(importPath, dir),
+		class:      class,
+		vendor:     vendor,
 	}
 	return mod
 }
-func parseClass(importPath, dir string) int {
+func parseClassVendor(importPath, dir string) (class, bool) {
+	if isVendor(dir) {
+		return classRequired, true
+	}
 	switch importPath {
 	case "", "cmd":
-		return classStdlib
+		return classStdlib, false
 	}
 	if _, hasVersion := parseVersion(dir); hasVersion {
-		return classRequired
+		return classRequired, false
 	}
-	if isVendor(dir) {
-		return classVendor
-	}
-	return classLocal
+	return classLocal, false
 }
 func parseVersion(dir string) (string, bool) {
 	_, version, found := strings.Cut(filepath.Base(dir), "@")
@@ -48,7 +52,18 @@ func parseVersion(dir string) (string, bool) {
 }
 func isVendor(dir string) bool { return filepath.Base(dir) == "vendor" }
 
-func (mod Module) shouldOmit() bool { return len(mod.packages) == 0 }
+func (mod Module) shouldOmit() bool { return len(mod.packages) == 0 && !mod.vendor }
+func (mod Module) newPackage(importPath string) _Package {
+	return _Package{
+		ImportPathParts: parseImportPathParts(mod, importPath),
+		Class:           mod.class,
+	}
+}
+func (mod *Module) addPackages(importPaths ...string) {
+	for _, importPath := range importPaths {
+		mod.packages.Insert(mod.newPackage(importPath))
+	}
+}
 
 type moduleList []Module
 
@@ -57,12 +72,6 @@ func (modList moduleList) MarshalJSON() ([]byte, error) { return omitEmptyElemen
 func (modList *moduleList) Remove(mods ...Module) { modList.Update(false, mods...) }
 func (modList *moduleList) Insert(mods ...Module) { modList.Update(true, mods...) }
 func (modList *moduleList) Update(add bool, mods ...Module) {
-	if modList == nil {
-		// A nil packageList is tolerated to allow
-		// packageIndex.searchPackages to search forward without
-		// actually creating a packageList.
-		return
-	}
 	for _, pkg := range mods {
 		modList.update(add, pkg)
 	}
@@ -83,20 +92,33 @@ func compareModules(a, b Module) int {
 	}
 	return stringsCompare(a.ImportPath, b.ImportPath)
 }
-func compareClasses(a, b int) int { return a - b }
+func compareClasses(a, b class) int { return int(a - b) }
 
 const (
-	classStdlib int = iota
+	classStdlib class = iota
 	classLocal
-	classVendor
 	classRequired
 )
+
+type class int
+
+func (c class) String() string {
+	switch c {
+	case classStdlib:
+		return "stdlib"
+	case classLocal:
+		return "local"
+	case classRequired:
+		return "required"
+	}
+	return "unknown"
+}
 
 // _Package is an internal representation of a package used for sorting.
 type _Package struct {
 	// ImportPathParts contains the full import path of the module in the
 	// first element of the slice. The subsequent elements in the slice
-	// contain the remaining package import path, split by "/".
+	// contain the remaining package import path segments.
 	//
 	// e.g. For the package "github.com/my/module/a/b/c" in the module
 	// "github.com/my/module", the slice would be:
@@ -105,15 +127,9 @@ type _Package struct {
 	//
 	// See comparePackages for the rationale behind this representation.
 	ImportPathParts []string
-	Class           int
+	Class           class
 }
 
-func newPackage(mod Module, importPath string) _Package {
-	return _Package{
-		ImportPathParts: parseImportPathParts(mod, importPath),
-		Class:           mod.class,
-	}
-}
 func parseImportPathParts(mod Module, pkgImportPath string) []string {
 	relPath := strings.TrimPrefix(pkgImportPath, mod.ImportPath)
 	relPath = strings.Trim(relPath, "/")

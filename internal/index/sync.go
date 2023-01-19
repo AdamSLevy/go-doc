@@ -7,47 +7,63 @@ import (
 	"strings"
 	"time"
 
+	"github.com/schollz/progressbar/v3"
+
+	"aslevy.com/go-doc/internal/math"
 	"aslevy.com/go-doc/internal/outfmt"
 	"aslevy.com/go-doc/internal/pager"
-	"github.com/schollz/progressbar/v3"
-	"golang.org/x/exp/slices"
+	islices "aslevy.com/go-doc/internal/slices"
 )
 
-func (pkgIdx *Packages) sync(required ...Module) {
+func (pkgIdx *Packages) sync(coderoots ...Module) {
 	defer func() { pkgIdx.updatedAt = time.Now() }()
 
-	progressBar := newProgressBar(len(pkgIdx.modules), "syncing modules...")
+	numModules := math.Max(len(pkgIdx.modules), len(coderoots))
+	progressBar := newProgressBar(len(coderoots), "syncing modules...")
+	defer func() {
+		progressBar.Finish()
+		progressBar.Clear()
+	}()
 
-	unknown := append(moduleList{}, pkgIdx.modules...)
-	for _, req := range required {
-		var mod *Module
-		pos, found := pkgIdx.modules.Search(req)
+	modules := make(moduleList, 0, numModules)
+	defer func() { pkgIdx.modules = modules }()
+
+	vendor := false
+	for _, root := range coderoots {
+		debug.Println("coderoot:", root)
+		mod := root
+		pos, found := pkgIdx.modules.Search(root)
 		if found {
-			unknown.Remove(req)
-		} else {
-			pkgIdx.modules = slices.Insert(pkgIdx.modules, pos, req)
+			debug.Println("found")
+			mod = pkgIdx.modules[pos]
 		}
-		mod = &pkgIdx.modules[pos]
-		if mod.Dir != req.Dir {
-			mod.updatedAt = time.Time{} // force rescan
-			mod.Dir = req.Dir
+		if mod.vendor {
+			debug.Println("vendor")
+			if vendor {
+				panic("multiple vendor modules")
+			}
+			modules.Insert(pkgIdx.syncVendored(mod, progressBar)...)
+			progressBar.Add(1)
+			vendor = true
+			continue
 		}
-		added, removed := mod.sync()
-		pkgIdx.syncPartials(*mod, added, removed)
+		if !pkgIdx.neverSync && (pkgIdx.forceSync || mod.needsSync(root)) {
+			mod.Dir = root.Dir
+			added, removed := mod.sync()
+			pkgIdx.syncPartials(mod, added, removed)
+		}
+		modules.Insert(mod)
 		progressBar.Add(1)
 	}
 
-	pkgIdx.modules.Remove(unknown...)
-	for _, mod := range unknown {
+	_, removed := islices.DiffSorted(pkgIdx.modules, modules, compareModules)
+	progressBar.ChangeMax(progressBar.GetMax() + len(removed))
+	for _, mod := range removed {
 		pkgIdx.syncPartials(mod, nil, mod.packages)
 		progressBar.Add(1)
 	}
-	progressBar.Finish()
-	progressBar.Clear()
 }
-func (pkgIdx *Packages) needsSync(mod Module) bool {
-	return false
-}
+
 func (pkgIdx *Packages) syncPartials(mod Module, add, remove packageList) {
 	modParts := strings.Split(mod.ImportPath, "/")
 	for _, pkg := range remove {
@@ -70,24 +86,29 @@ func newProgressBar(total int, description string) *progressbar.ProgressBar {
 	)
 }
 
+func (mod Module) needsSync(required Module) bool {
+	// Sync when...
+	return mod.Dir != required.Dir || // the dir changes
+		mod.class == classLocal || // the module is local
+		len(mod.packages) == 0 || mod.updatedAt.IsZero() // the module has no packages
+}
 func (mod *Module) sync() (added, removed packageList) {
 	debug.Printf("syncing module %q in %s", mod.ImportPath, mod.Dir)
+	pkgs := make(packageList, 0, len(mod.packages))
 	defer func() {
-		mod.packages.Remove(removed...)
-		mod.packages.Insert(added...)
+		added, removed = islices.DiffSorted(mod.packages, pkgs, comparePackages)
+		if len(added)+len(removed) > 0 {
+			mod.packages = pkgs
+		}
 		mod.updatedAt = time.Now()
 	}()
 
-	inModule := true
 	mod.Dir = filepath.Clean(mod.Dir) // because filepath.Join will do it anyway
 
 	// this is the queue of directories to examine in this pass.
 	this := []_Package{}
 	// next is the queue of directories to examine in the next pass.
-	next := []_Package{newPackage(*mod, mod.ImportPath)}
-
-	// Assume everything is removed...
-	removed = append(removed, mod.packages...)
+	next := []_Package{mod.newPackage(mod.ImportPath)}
 
 	for len(next) > 0 {
 		this, next = next, this[0:0]
@@ -124,7 +145,7 @@ func (mod *Module) sync() (added, removed packageList) {
 					continue
 				}
 				// When in a module, ignore vendor directories and stop at module boundaries.
-				if inModule {
+				if !mod.vendor {
 					if name == "vendor" {
 						continue
 					}
@@ -139,14 +160,7 @@ func (mod *Module) sync() (added, removed packageList) {
 				next = append(next, pkg)
 			}
 			if hasGoFiles {
-				pos, found := removed.Search(pkg)
-				if !found {
-					debug.Printf("adding package %q in %s", pkg, dir)
-					added.Insert(pkg)
-				} else {
-					debug.Printf("keeping package %q in %s", pkg, dir)
-					removed = slices.Delete(removed, pos, pos+1)
-				}
+				pkgs.Insert(pkg)
 			}
 		}
 	}

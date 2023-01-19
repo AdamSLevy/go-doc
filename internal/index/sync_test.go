@@ -94,9 +94,7 @@ var syncTests = []moduleSyncTest{{
 }}
 
 func TestModuleSync(t *testing.T) {
-
 	mod := NewModule("example.com/module", t.TempDir())
-
 	var allPkgs packageList
 	for _, test := range syncTests {
 		t.Run(test.name, func(t *testing.T) {
@@ -128,7 +126,7 @@ func toPackageList(mod Module, importPaths ...string) (pkgs packageList) {
 	}
 	pkgs = make(packageList, 0, len(importPaths))
 	for _, path := range importPaths {
-		pkgs.Insert(newPackage(mod, path))
+		pkgs.Insert(mod.newPackage(path))
 	}
 	return
 }

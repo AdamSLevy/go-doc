@@ -124,3 +124,25 @@ func shortLong[S ~[]E, E any](s1, s2 S) (short, long S) {
 	}
 	return
 }
+
+func DiffSorted[S ~[]E, E any](a, b S, cmp func(a, b E) int) (added, removed S) {
+	var i, j int
+	for i < len(a) && j < len(b) {
+		c := cmp(a[i], b[j])
+		if c < 0 {
+			removed = append(removed, a[i])
+			i++
+			continue
+		}
+		if c > 0 {
+			added = append(added, b[j])
+			j++
+			continue
+		}
+		i++
+		j++
+	}
+	removed = append(removed, a[i:]...)
+	added = append(added, b[j:]...)
+	return
+}

@@ -62,27 +62,27 @@ func stringsCompare(a, b string) int {
 // MarshalJSON omits any rightPartial with no Packages.
 func (pl rightPartialList) MarshalJSON() ([]byte, error) { return omitEmptyElementsMarshalJSON(pl) }
 
-// rightPartialListsByNumSlash is a list of rightPartialLists, in ascending
+// rightPartialIndex is a list of rightPartialLists, in ascending
 // order of the number of slashes in the right partials of each list.
 //
 // For example, the right partial "b/c" would be indexed in the second list,
 // index 1.
-type rightPartialListsByNumSlash []rightPartialList
+type rightPartialIndex []rightPartialList
 
-func (bns rightPartialListsByNumSlash) MarshalJSON() ([]byte, error) {
+func (bns rightPartialIndex) MarshalJSON() ([]byte, error) {
 	if len(bns) > 0 && len(bns[len(bns)-1]) == 0 {
 		bns = bns[:len(bns)-1]
 	}
 	return json.Marshal([]rightPartialList(bns))
 }
 
-func (bns *rightPartialListsByNumSlash) Insert(modParts []string, pkg _Package) {
+func (bns *rightPartialIndex) Insert(modParts []string, pkg _Package) {
 	bns.Update(true, modParts, pkg)
 }
-func (bns *rightPartialListsByNumSlash) Remove(modParts []string, pkg _Package) {
+func (bns *rightPartialIndex) Remove(modParts []string, pkg _Package) {
 	bns.Update(false, modParts, pkg)
 }
-func (bns *rightPartialListsByNumSlash) Update(add bool, modParts []string, pkg _Package) {
+func (bns *rightPartialIndex) Update(add bool, modParts []string, pkg _Package) {
 	dlog.Printf("Packages.update(mod:%q, %q, %v)", pkg.ModulePath(), pkg.ImportPath, add)
 	parts := append(modParts, pkg.ImportPathParts[1:]...)
 	if len(*bns) < len(parts) {
@@ -92,6 +92,6 @@ func (bns *rightPartialListsByNumSlash) Update(add bool, modParts []string, pkg 
 		bns.update(add, parts[i:], pkg)
 	}
 }
-func (bns rightPartialListsByNumSlash) update(add bool, parts []string, pkg _Package) {
+func (bns rightPartialIndex) update(add bool, parts []string, pkg _Package) {
 	bns[len(parts)-1].updatePartial(add, parts, pkg)
 }
