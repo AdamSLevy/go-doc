@@ -11,6 +11,7 @@ import (
 	"aslevy.com/go-doc/internal/completion"
 	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/godoc"
+	"aslevy.com/go-doc/internal/index"
 	"aslevy.com/go-doc/internal/install"
 	"aslevy.com/go-doc/internal/open"
 	"aslevy.com/go-doc/internal/outfmt"
@@ -33,6 +34,8 @@ func addAllFlags(fs *flag.FlagSet) {
 
 	fs.BoolVar(&pager.Disabled, "pager-off", false, "don't use a pager")
 	fs.BoolVar(&open.Requested, "open", false, "open the file containing the symbol with GODOC_EDITOR or EDITOR")
+
+	fs.StringVar(&index.Sync, "index", index.Auto, "cached index modes: auto, off, force, skip")
 
 	fs.Var((*fmtFlag)(&outfmt.Format), "fmt", fmt.Sprintf("format of output: %v", outfmt.Modes()))
 	fs.StringVar(&outfmt.BaseURL, "base-url", "https://pkg.go.dev/", "base URL for links in markdown output")

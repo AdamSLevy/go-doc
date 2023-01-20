@@ -4,33 +4,11 @@ import (
 	"strings"
 	"unicode"
 
+	"aslevy.com/go-doc/internal/godoc"
 	"golang.org/x/exp/slices"
 )
 
-type SearchOption func(*searchOptions)
-type searchOptions struct {
-	Exact bool
-	Dirs  bool // Return the package directories instead of import paths.
-}
-
-func ReturnDirs() SearchOption  { return func(o *searchOptions) { o.Dirs = true } }
-func SearchExact() SearchOption { return func(o *searchOptions) { o.Exact = true } }
-
-func WithSearchOptions(opts ...SearchOption) SearchOption {
-	return func(o *searchOptions) {
-		for _, opt := range opts {
-			opt(o)
-		}
-	}
-}
-
-func newSearchOptions(opts ...SearchOption) searchOptions {
-	var o searchOptions
-	WithSearchOptions(opts...)(&o)
-	return o
-}
-
-func (p Packages) Search(path string, opts ...SearchOption) []string {
+func (p *Packages) Search(path string, exact bool) (results []godoc.PackageDir) {
 	parts := strings.Split(path, "/")
 	numSlash := len(parts) - 1
 	if numSlash >= len(p.partials) {
@@ -39,22 +17,18 @@ func (p Packages) Search(path string, opts ...SearchOption) []string {
 	}
 
 	var exactParts []string
-	o := newSearchOptions(opts...)
-	if o.Exact {
+	if exact {
 		exactParts = parts
 		parts = nil
 	}
 	var pkgs packageList
 	for _, partials := range p.partials[numSlash:] {
 		partials.searchPackages(&pkgs, exactParts, parts...)
-		if o.Exact {
+		if exact {
 			break
 		}
 	}
-	if o.Dirs {
-		return pkgs.Dirs(p.modules)
-	}
-	return pkgs.ImportPaths()
+	return pkgs.PackageDirs(p.modules)
 }
 
 func (p rightPartialList) searchPackages(matches *packageList, exact []string, prefixes ...string) (pos int) {

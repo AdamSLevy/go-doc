@@ -28,33 +28,33 @@ func goModVendor(t *testing.T, modDir string) {
 	t.Cleanup(func() { require.NoError(t, os.RemoveAll(filepath.Join(modDir, "vendor"))) })
 }
 
-func testEqualModule(t *testing.T, exp, got Module) {
+func testEqualModule(t *testing.T, exp, got module) {
 	t.Helper()
 	assert := assert.New(t)
 	assert.Equal(exp.ImportPath, got.ImportPath)
 	assert.Equal(exp.Dir, got.Dir, exp.ImportPath)
-	assert.Equal(exp.packages, got.packages, exp.ImportPath)
-	assert.True(got.vendor, exp.ImportPath)
-	updatedAt := exp.updatedAt
+	assert.Equal(exp.Packages, got.Packages, exp.ImportPath)
+	assert.True(got.Vendor, exp.ImportPath)
+	updatedAt := exp.UpdatedAt
 	if updatedAt.IsZero() {
 		updatedAt = time.Now()
 	}
-	assert.WithinDuration(updatedAt, got.updatedAt, time.Millisecond, exp.ImportPath)
+	assert.WithinDuration(updatedAt, got.UpdatedAt, time.Millisecond, exp.ImportPath)
 }
 
 var testVendorDir = filepath.FromSlash("./testdata/module/vendor")
 var vendoredModules = moduleList{
-	newModule("aslevy.com/go-doc",
+	testModule("aslevy.com/go-doc",
 		"aslevy.com/go-doc/testdata/codeblocks",
 	),
-	newModule("github.com/davecgh/go-spew",
+	testModule("github.com/davecgh/go-spew",
 		"github.com/davecgh/go-spew/spew",
 	),
 }
 
-func newModule(importPath string, pkgs ...string) Module {
-	mod := NewModule(importPath, filepath.Join(testVendorDir, filepath.FromSlash(importPath)))
-	mod.class = classRequired
+func testModule(importPath string, pkgs ...string) module {
+	mod := newModule(importPath, filepath.Join(testVendorDir, filepath.FromSlash(importPath)))
+	mod.Class = classRequired
 	mod.addPackages(pkgs...)
 	return mod
 }

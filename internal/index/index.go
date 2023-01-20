@@ -7,49 +7,128 @@ import (
 	"time"
 
 	"aslevy.com/go-doc/internal/dlog"
-	"github.com/schollz/progressbar/v3"
+	"aslevy.com/go-doc/internal/godoc"
+)
+
+const DefaultResyncInterval = 30 * time.Minute
+
+var (
+	disabled bool = func() bool { return os.Getenv("GODOC_DISABLE_INDEX") != "" }()
+
+	Sync           Mode = Auto
+	ResyncInterval      = DefaultResyncInterval
 )
 
 var debug = dlog.Child("index")
 
 type Packages struct {
-	modules  moduleList
-	partials rightPartialIndex
+	codeRoots []godoc.PackageDir
+	modules   moduleList
+	partials  rightPartialIndex
 
 	createdAt time.Time
 	updatedAt time.Time
 
-	syncProgress *progressbar.ProgressBar
-	forceSync    bool
-	neverSync    bool
+	options
 }
 
-func New(required ...Module) *Packages {
-	var pkgIdx Packages
-	pkgIdx.createdAt = time.Now()
-	pkgIdx.sync(required...)
-	return &pkgIdx
+type options struct {
+	mode           Mode
+	resyncInterval time.Duration
 }
 
-func Load(path string, required ...Module) (*Packages, error) {
+type Option func(*options)
+
+func newOptions(opts ...Option) options {
+	o := defaultOptions()
+	WithOptions(opts...)(&o)
+	return o
+}
+func defaultOptions() options {
+	return options{
+		mode:           Auto,
+		resyncInterval: DefaultResyncInterval,
+	}
+}
+
+func WithOptions(opts ...Option) Option {
+	return func(o *options) {
+		for _, opt := range opts {
+			opt(o)
+		}
+	}
+}
+
+type Mode = string
+
+const (
+	Auto      Mode = "auto"
+	Off            = "off"
+	ForceSync      = "force"
+	SkipSync       = "skip"
+)
+
+func WithAuto() Option      { return WithMode(Auto) }
+func WithOff() Option       { return WithMode(Off) }
+func WithForceSync() Option { return WithMode(ForceSync) }
+func WithSkipSync() Option  { return WithMode(SkipSync) }
+func WithMode(mode Mode) Option {
+	return func(o *options) {
+		o.mode = mode
+	}
+}
+
+func WithResyncInterval(interval time.Duration) Option {
+	return func(o *options) {
+		o.resyncInterval = interval
+	}
+}
+
+func New(coderoots []godoc.PackageDir, opts ...Option) *Packages {
+	pkgIdx := newPackages(opts...)
+	if pkgIdx == nil {
+		return nil
+	}
+	pkgIdx.sync(coderoots...)
+	return pkgIdx
+}
+func newPackages(opts ...Option) *Packages {
+	if disabled {
+		return nil
+	}
+	o := newOptions(opts...)
+	if o.mode == Off {
+		return nil
+	}
+	return &Packages{
+		createdAt: time.Now(),
+		options:   o,
+	}
+}
+
+func Load(path string, required []godoc.PackageDir, opts ...Option) (_ *Packages, err error) {
+	pkgIdx := newPackages(opts...)
+	if pkgIdx == nil {
+		return nil, nil
+	}
+	defer func() { err = pkgIdx.Save(path) }()
 	f, err := os.Open(path)
 	if err != nil {
-		return New(required...), err
-	}
-	defer f.Close()
-	return Decode(f, required...)
-}
-
-// Decode the data from r into a new index.
-//
-// This is the inverse of Packages.Encode.
-func Decode(r io.Reader, required ...Module) (*Packages, error) {
-	var idx Packages
-	if err := json.NewDecoder(r).Decode(&idx); err != nil {
 		return nil, err
 	}
-	idx.sync(required...)
-	return &idx, nil
+	defer f.Close()
+
+	return pkgIdx, pkgIdx.decode(f, required)
+
+}
+func (pkgIdx *Packages) decode(r io.Reader, required []godoc.PackageDir) error {
+	defer pkgIdx.sync(required...)
+	var p packagesJSON
+	if err := json.NewDecoder(r).Decode(&p); err != nil {
+		return err
+	}
+	pkgIdx.fromPackagesJSON(p)
+	return nil
 }
 
 func (pkgIdx Packages) Save(path string) error {
@@ -58,20 +137,33 @@ func (pkgIdx Packages) Save(path string) error {
 		return err
 	}
 	defer f.Close()
-	return pkgIdx.Encode(f)
+	return pkgIdx.encode(f)
 }
-func (pkgIdx Packages) Encode(w io.Writer) error { return json.NewEncoder(w).Encode(pkgIdx) }
+func (pkgIdx Packages) encode(w io.Writer) error {
+	return json.NewEncoder(w).Encode(pkgIdx.toPackagesJSON())
+}
 
-func (pkgIdx Packages) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Modules   moduleList
-		Partials  rightPartialIndex
-		CreatedAt time.Time
-		UpdatedAt time.Time
-	}{
+type packagesJSON struct {
+	CodeRoots []godoc.PackageDir
+	Modules   moduleList
+	Partials  rightPartialIndex
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (pkgIdx Packages) toPackagesJSON() packagesJSON {
+	return packagesJSON{
+		CodeRoots: pkgIdx.codeRoots,
 		Modules:   pkgIdx.modules,
 		Partials:  pkgIdx.partials,
 		CreatedAt: pkgIdx.createdAt,
 		UpdatedAt: pkgIdx.updatedAt,
-	})
+	}
+}
+func (pkgIdx *Packages) fromPackagesJSON(p packagesJSON) {
+	pkgIdx.codeRoots = p.CodeRoots
+	pkgIdx.modules = p.Modules
+	pkgIdx.partials = p.Partials
+	pkgIdx.createdAt = p.CreatedAt
+	pkgIdx.updatedAt = p.UpdatedAt
 }

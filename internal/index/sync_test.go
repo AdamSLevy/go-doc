@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"aslevy.com/go-doc/internal/godoc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -94,7 +95,7 @@ var syncTests = []moduleSyncTest{{
 }}
 
 func TestModuleSync(t *testing.T) {
-	mod := NewModule("example.com/module", t.TempDir())
+	mod := toModule(godoc.PackageDir{"example.com/module", t.TempDir()})
 	var allPkgs packageList
 	for _, test := range syncTests {
 		t.Run(test.name, func(t *testing.T) {
@@ -105,7 +106,7 @@ func TestModuleSync(t *testing.T) {
 			added, removed := mod.sync()
 
 			require := require.New(t)
-			require.WithinDuration(time.Now(), mod.updatedAt, time.Millisecond, "Module.updatedAt")
+			require.WithinDuration(time.Now(), mod.UpdatedAt, time.Millisecond, "Module.updatedAt")
 
 			expRemoved := toPackageList(mod, test.removed...)
 			require.Equal(expRemoved, removed, "removed")
@@ -115,12 +116,12 @@ func TestModuleSync(t *testing.T) {
 
 			allPkgs.Remove(expRemoved...)
 			allPkgs.Insert(expAdded...)
-			require.Equal(allPkgs, mod.packages, "all packages")
+			require.Equal(allPkgs, mod.Packages, "all packages")
 		})
 	}
 }
 
-func toPackageList(mod Module, importPaths ...string) (pkgs packageList) {
+func toPackageList(mod module, importPaths ...string) (pkgs packageList) {
 	if len(importPaths) == 0 {
 		return
 	}

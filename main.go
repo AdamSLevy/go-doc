@@ -58,6 +58,7 @@ import (
 	"aslevy.com/go-doc/internal/completion"
 	"aslevy.com/go-doc/internal/flags"
 	"aslevy.com/go-doc/internal/godoc"
+	"aslevy.com/go-doc/internal/index"
 	"aslevy.com/go-doc/internal/outfmt"
 )
 
@@ -109,19 +110,20 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	flagSet.BoolVar(&short, "short", false, "one-line representation for each symbol")
 	flags.Parse(flagSet, args...)
 	godoc.NoImports = godoc.NoImports || short // don't show imports with -short
-	completer := completion.NewCompleter(writer, dirs.PackageDirs(), unexported, matchCase, flagSet.Args())
+	if pkgIdx := packageIndex(); pkgIdx != nil {
+		xdirs = index.NewDirs(pkgIdx)
+	}
+	completer := completion.NewCompleter(writer, xdirs, unexported, matchCase, flagSet.Args())
 
 	// Set up pager and output format writers.
 	wc := outfmt.Output(writer)
 	defer wc.Close()
 	writer = wc
 
-	pkgFinder = newPackageFinder()
-
 	var paths []string
 	var symbol, method string
 	// Loop until something is printed.
-	pkgFinder.Reset()
+	xdirs.Reset()
 	for i := 0; ; i++ {
 		buildPackage, userPath, sym, more := parseArgs(flagSet.Args())
 		if i > 0 && !more { // Ignore the "more" bit on the first iteration.
@@ -249,7 +251,7 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 			return pkg, args[0], args[1], false
 		}
 		for {
-			packagePath, ok := pkgFinder.FindNextPackage(arg)
+			packagePath, ok := findNextPackage(arg)
 			if !ok {
 				break
 			}
@@ -316,7 +318,7 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 		// or ivy/value for robpike.io/ivy/value.
 		pkgName := arg[:period]
 		for {
-			path, ok := pkgFinder.FindNextPackage(pkgName)
+			path, ok := findNextPackage(pkgName)
 			if !ok {
 				break
 			}
@@ -324,7 +326,7 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 				return pkg, arg[0:period], symbol, true
 			}
 		}
-		pkgFinder.Reset() // Next iteration of for loop must scan all the directories again.
+		xdirs.Reset() // Next iteration of for loop must scan all the directories again.
 	}
 	// If it has a slash, we've failed.
 	if slash >= 0 && !completion.Requested {
@@ -426,6 +428,12 @@ func findNextPackage(pkg string) (string, bool) {
 		return "", false
 	}
 	pkg = path.Clean(pkg)
+
+	if xdirs.Filter(pkg, true) {
+		d, ok := xdirs.Next()
+		return d.Dir, ok
+	}
+
 	pkgSuffix := "/" + pkg
 	for {
 		d, ok := dirs.Next()

@@ -10,40 +10,40 @@ import (
 	"time"
 
 	"aslevy.com/go-doc/internal/dlog"
+	"aslevy.com/go-doc/internal/godoc"
 	islices "aslevy.com/go-doc/internal/slices"
-	"github.com/schollz/progressbar/v3"
 )
 
-func (pkgIdx *Packages) syncVendored(vendor Module, progressBar *progressbar.ProgressBar) (vendored moduleList) {
-	if pkgIdx.neverSync || (!pkgIdx.forceSync && !vendor.needsSyncVendor()) {
+func (pkgIdx *Packages) syncVendored(vendor module) (vendored moduleList) {
+	if pkgIdx.mode != ForceSync && !vendor.needsSyncVendor() {
 		return pkgIdx.modules.vendored()
 	}
 
 	vendored = vendor.syncVendoredModules()
-	progressBar.ChangeMax(progressBar.GetMax() + len(vendored))
+	// progressBar.ChangeMax(progressBar.GetMax() + len(vendored))
 	for _, mod := range vendored {
 		var pkgs packageList
 		if pos, found := pkgIdx.modules.Search(mod); found {
-			pkgs = pkgIdx.modules[pos].packages
+			pkgs = pkgIdx.modules[pos].Packages
 		}
-		added, removed := islices.DiffSorted(pkgs, mod.packages, comparePackages)
+		added, removed := islices.DiffSorted(pkgs, mod.Packages, comparePackages)
 		pkgIdx.syncPartials(mod, added, removed)
-		progressBar.Add(1)
+		// progressBar.Add(1)
 	}
 	vendored.Insert(vendor)
 	return
 }
 func (modList moduleList) vendored() (vendored moduleList) {
 	for _, mod := range modList {
-		if mod.vendor {
+		if mod.Vendor {
 			vendored = append(vendored, mod)
 		}
 	}
 	return
 }
 
-func (vendor Module) needsSyncVendor() bool {
-	if !vendor.vendor || filepath.Base(vendor.Dir) != "vendor" {
+func (vendor module) needsSyncVendor() bool {
+	if !vendor.Vendor || filepath.Base(vendor.Dir) != "vendor" {
 		return false
 	}
 	info, err := os.Stat(vendor.Dir)
@@ -51,12 +51,12 @@ func (vendor Module) needsSyncVendor() bool {
 		log.Printf("failed to stat %s: %v", vendor.Dir, err)
 		return true
 	}
-	return info.ModTime().After(vendor.updatedAt)
+	return info.ModTime().After(vendor.UpdatedAt)
 }
-func (vendor *Module) syncVendoredModules() moduleList {
+func (vendor *module) syncVendoredModules() moduleList {
 	mods := parseVendoredModules(vendor.Dir)
 	if len(mods) > 0 {
-		vendor.updatedAt = time.Now()
+		vendor.UpdatedAt = time.Now()
 	}
 	return mods
 }
@@ -78,20 +78,19 @@ func parseVendoredModules(vendorDir string) (mods moduleList) {
 }
 func parseModulesTxtData(vendorDir string, data io.Reader) (mods moduleList) {
 	updatedAt := time.Now()
-	var mod Module
+	var mod module
 	lines := bufio.NewScanner(data)
 	for lines.Scan() {
 		modImportPath, _, pkgImportPath := parseModuleTxtLine(lines.Text())
 		if modImportPath != "" {
-			if len(mod.packages) > 0 {
+			if len(mod.Packages) > 0 {
 				mods.Insert(mod)
 			}
-			mod = Module{
-				ImportPath: modImportPath,
-				Dir:        filepath.Join(vendorDir, modImportPath),
-				class:      classRequired,
-				vendor:     true,
-				updatedAt:  updatedAt,
+			mod = module{
+				PackageDir: godoc.PackageDir{modImportPath, filepath.Join(vendorDir, modImportPath)},
+				Class:      classRequired,
+				Vendor:     true,
+				UpdatedAt:  updatedAt,
 			}
 			continue
 		}
@@ -99,7 +98,7 @@ func parseModulesTxtData(vendorDir string, data io.Reader) (mods moduleList) {
 			mod.addPackages(pkgImportPath)
 		}
 	}
-	if len(mod.packages) > 0 {
+	if len(mod.Packages) > 0 {
 		mods = append(mods, mod)
 	}
 

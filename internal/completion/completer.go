@@ -55,7 +55,7 @@ var (
 
 type Completer struct {
 	out  io.Writer
-	dirs godoc.PackageDirs
+	dirs godoc.Dirs
 
 	args    []string
 	current int
@@ -65,7 +65,7 @@ type Completer struct {
 	matchPartialTypes bool
 }
 
-func NewCompleter(out io.Writer, dirs godoc.PackageDirs, unexported, matchCase bool, args []string) *Completer {
+func NewCompleter(out io.Writer, dirs godoc.Dirs, unexported, matchCase bool, args []string) *Completer {
 	// Normally we allow partial types on either side of a dot when
 	// specifying a <type>.<method|field>
 	// i.e. go doc http cli.d<tab> -> go doc http Client.Do
@@ -218,12 +218,12 @@ func (c Completer) completeFirstArg(arg string, pkg godoc.PackageInfo, userPath,
 // The arg is assumed to be in one of the following forms. This should be the
 // case when we are completing symbols for the first argument.
 //
-//  - <pkg>.
-//  - <pkg>.<sym>
-//  - <pkg>.<sym>.
-//  - <pkg>.<sym>.<method>
-//  - <sym>.
-//  - <sym>.<method>
+//   - <pkg>.
+//   - <pkg>.<sym>
+//   - <pkg>.<sym>.
+//   - <pkg>.<sym>.<method>
+//   - <sym>.
+//   - <sym>.<method>
 //
 // Since <pkg> may also contain one or more "." characters, we must work from
 // right to left based on the provided symbol and method.
@@ -252,7 +252,7 @@ func packagePrefix(arg, symbol, method string) string {
 
 // completeSecondArg generates completion for the second argument of go doc:
 //
-//   go doc <pkg> <sym>[.<methodOrField>]
+//	go doc <pkg> <sym>[.<methodOrField>]
 //
 // So we could be completing:
 // - a symbol in the given package

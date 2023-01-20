@@ -8,28 +8,30 @@ import (
 
 	"golang.org/x/exp/slices"
 
+	"aslevy.com/go-doc/internal/godoc"
 	islices "aslevy.com/go-doc/internal/slices"
 )
 
-// Module represents a Go module and its packages.
-type Module struct {
-	ImportPath string
-	Dir        string // Location of the module on the filesystem.
+// module represents a Go module and its packages.
+type module struct {
+	godoc.PackageDir
 
-	class  class // classStdlib, classRequired, or classLocal.
-	vendor bool  // True if Dir is the vendor directory, or a subdirectory.
+	Class  class // classStdlib, classRequired, or classLocal.
+	Vendor bool  // True if Dir is the vendor directory, or a subdirectory.
 
-	packages  packageList
-	updatedAt time.Time
+	Packages  packageList
+	UpdatedAt time.Time
 }
 
-func NewModule(importPath, dir string) Module {
-	class, vendor := parseClassVendor(importPath, dir)
-	mod := Module{
-		ImportPath: importPath,
-		Dir:        dir,
-		class:      class,
-		vendor:     vendor,
+func newModule(importPath, dir string) module {
+	return toModule(godoc.NewPackageDir(importPath, dir))
+}
+func toModule(pkg godoc.PackageDir) module {
+	class, vendor := parseClassVendor(pkg.ImportPath, pkg.Dir)
+	mod := module{
+		PackageDir: pkg,
+		Class:      class,
+		Vendor:     vendor,
 	}
 	return mod
 }
@@ -52,42 +54,42 @@ func parseVersion(dir string) (string, bool) {
 }
 func isVendor(dir string) bool { return filepath.Base(dir) == "vendor" }
 
-func (mod Module) shouldOmit() bool { return len(mod.packages) == 0 && !mod.vendor }
-func (mod Module) newPackage(importPath string) _Package {
+func (mod module) shouldOmit() bool { return len(mod.Packages) == 0 && !mod.Vendor }
+func (mod module) newPackage(importPath string) _Package {
 	return _Package{
 		ImportPathParts: parseImportPathParts(mod, importPath),
-		Class:           mod.class,
+		Class:           mod.Class,
 	}
 }
-func (mod *Module) addPackages(importPaths ...string) {
+func (mod *module) addPackages(importPaths ...string) {
 	for _, importPath := range importPaths {
-		mod.packages.Insert(mod.newPackage(importPath))
+		mod.Packages.Insert(mod.newPackage(importPath))
 	}
 }
 
-type moduleList []Module
+type moduleList []module
 
 func (modList moduleList) MarshalJSON() ([]byte, error) { return omitEmptyElementsMarshalJSON(modList) }
 
-func (modList *moduleList) Remove(mods ...Module) { modList.Update(false, mods...) }
-func (modList *moduleList) Insert(mods ...Module) { modList.Update(true, mods...) }
-func (modList *moduleList) Update(add bool, mods ...Module) {
+func (modList *moduleList) Remove(mods ...module) { modList.Update(false, mods...) }
+func (modList *moduleList) Insert(mods ...module) { modList.Update(true, mods...) }
+func (modList *moduleList) Update(add bool, mods ...module) {
 	for _, pkg := range mods {
 		modList.update(add, pkg)
 	}
 }
-func (modList *moduleList) update(add bool, mod Module) {
-	opts := []islices.Option[Module]{islices.WithKeepOriginal[Module]()}
+func (modList *moduleList) update(add bool, mod module) {
+	opts := []islices.Option[module]{islices.WithKeepOriginal[module]()}
 	if !add {
-		opts = append(opts, islices.WithDelete[Module]())
+		opts = append(opts, islices.WithDelete[module]())
 	}
 	*modList, _, _ = islices.UpdateSorted(*modList, mod, compareModules, opts...)
 }
-func (modList moduleList) Search(mod Module) (pos int, found bool) {
+func (modList moduleList) Search(mod module) (pos int, found bool) {
 	return slices.BinarySearchFunc(modList, mod, compareModules)
 }
-func compareModules(a, b Module) int {
-	if cmp := compareClasses(a.class, b.class); cmp != 0 {
+func compareModules(a, b module) int {
+	if cmp := compareClasses(a.Class, b.Class); cmp != 0 {
 		return cmp
 	}
 	return stringsCompare(a.ImportPath, b.ImportPath)
@@ -130,7 +132,7 @@ type _Package struct {
 	Class           class
 }
 
-func parseImportPathParts(mod Module, pkgImportPath string) []string {
+func parseImportPathParts(mod module, pkgImportPath string) []string {
 	relPath := strings.TrimPrefix(pkgImportPath, mod.ImportPath)
 	relPath = strings.Trim(relPath, "/")
 	var relParts []string
@@ -146,27 +148,23 @@ func parseImportPathParts(mod Module, pkgImportPath string) []string {
 func (pkg _Package) ModulePath() string { return pkg.ImportPathParts[0] }
 func (pkg _Package) ImportPath() string { return path.Join(pkg.ImportPathParts...) }
 func (pkg _Package) String() string     { return pkg.ImportPath() }
-func (pkg _Package) Dir(mod Module) string {
+func (pkg _Package) Dir(mod module) string {
 	return filepath.Join(mod.Dir, filepath.Join(pkg.ImportPathParts[1:]...))
 }
 
 type packageList []_Package
 
-func (pkgList packageList) Dirs(mods moduleList) []string {
-	dirs := make([]string, 0, len(pkgList))
+func (pkgList packageList) PackageDirs(mods moduleList) []godoc.PackageDir {
+	pkgs := make([]godoc.PackageDir, 0, len(pkgList))
 	for _, pkg := range pkgList {
-		pos, found := mods.Search(Module{ImportPath: pkg.ModulePath()})
+		var mod module
+		mod.ImportPath = pkg.ModulePath()
+		mod.Class = pkg.Class
+		pos, found := mods.Search(mod)
 		if !found {
 			continue
 		}
-		dirs = append(dirs, pkg.Dir(mods[pos]))
-	}
-	return dirs
-}
-func (pkgList packageList) ImportPaths() []string {
-	pkgs := make([]string, len(pkgList))
-	for i, pkg := range pkgList {
-		pkgs[i] = pkg.ImportPath()
+		pkgs = append(pkgs, godoc.NewPackageDir(pkg.ImportPath(), pkg.Dir(mods[pos])))
 	}
 	return pkgs
 }

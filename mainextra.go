@@ -8,70 +8,36 @@ import (
 	"strings"
 
 	"aslevy.com/go-doc/internal/dlog"
+	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/index"
 )
 
-type packageFinder struct {
-	search  string
-	matches []string
-	offset  int
-	pkgIdx  *index.Packages
-}
-
-var pkgFinder *packageFinder
-
-func (pf *packageFinder) FindNextPackage(pkg string) (string, bool) {
-	if pf == nil || pf.pkgIdx == nil {
-		return findNextPackage(pkg)
-	}
-	if pf.search != pkg {
-		pf.search = pkg
-		pf.matches = pf.pkgIdx.Search(pkg, index.SearchExact())
-		pf.offset = 0
-	}
-	if pf.offset < len(pf.matches) {
-		pkg := pf.matches[pf.offset]
-		pf.offset++
-		return pkg, pf.offset < len(pf.matches)
-	}
-	return "", false
-}
-
-func (pf *packageFinder) Reset() {
-	if pf == nil || pf.pkgIdx == nil {
-		dirs.Reset()
-	}
-	pf.search = ""
-	pf.matches = nil
-	pf.offset = 0
-}
-
-func newPackageFinder() *packageFinder {
-	return &packageFinder{pkgIdx: packageIndex()}
-}
-
 func packageIndex() *index.Packages {
-	path := indexCachePath()
+	localModuleRoot := moduleRootDir(goCmd())
+	if localModuleRoot == "" {
+		return nil
+	}
+	path := indexCachePath(localModuleRoot)
 	if err := os.Mkdir(filepath.Dir(path), 0755); err != nil && !os.IsExist(err) {
 		dlog.Printf("failed to create index cache dir: %v", err)
 		return nil
 	}
-	pkgIdx, _ := index.Load(path, dirsToIndexModules(codeRoots()...)...)
-	if err := pkgIdx.Save(path); err != nil {
-		dlog.Printf("failed to save index cache: %v", err)
+	pkgIdx, err := index.Load(path, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
+	if err != nil {
+		dlog.Printf("index.UpdateOrCreate: %v", err)
 	}
 	return pkgIdx
 }
-
-func dirsToIndexModules(dirs ...Dir) []index.Module {
-	mods := make([]index.Module, len(dirs))
+func indexCachePath(localModuleRoot string) string {
+	return filepath.Join(localModuleRoot, ".go-doc", "index.json")
+}
+func dirsToIndexModules(dirs ...Dir) []godoc.PackageDir {
+	mods := make([]godoc.PackageDir, len(dirs))
 	for i, dir := range dirs {
-		mods[i] = index.NewModule(dir.importPath, dir.dir)
+		mods[i] = godoc.NewPackageDir(dir.importPath, dir.dir)
 	}
 	return mods
 }
-
-func indexCachePath() string { return filepath.Join(moduleRootDir(goCmd()), ".go-doc", "index.json") }
 func moduleRootDir(goCmd string) string {
 	args := []string{"env", "GOMOD"}
 	stdout, err := exec.Command(goCmd, args...).Output()

@@ -1,6 +1,10 @@
 package main
 
-import "aslevy.com/go-doc/internal/godoc"
+import (
+	"aslevy.com/go-doc/internal/godoc"
+)
+
+var xdirs godoc.Dirs = dirs.PackageDirs()
 
 func (dirs *Dirs) PackageDirs() *PackageDirs { return (*PackageDirs)(dirs) }
 
@@ -8,14 +12,13 @@ type PackageDirs Dirs
 
 func (d *PackageDirs) dirs() *Dirs { return (*Dirs)(d) }
 
-func (d *PackageDirs) Next() (godoc.Dir, bool) {
+func (d *PackageDirs) Next() (godoc.PackageDir, bool) {
 	dir, ok := d.dirs().Next()
-	return godoc.Dir{
-		ImportPath: dir.importPath,
-		Dir:        dir.dir,
-	}, ok
+	return godoc.NewPackageDir(dir.importPath, dir.dir), ok
 }
 
 func (d *PackageDirs) Reset() { d.dirs().Reset() }
+
+func (d *PackageDirs) Filter(string, bool) bool { return false }
 
 func (dirs *Dirs) registerPackage(importPath, dir string) { dirs.scan <- Dir{importPath, dir, true} }
