@@ -33,8 +33,8 @@ func (pkgIdx *Packages) needsSync(codeRoots ...godoc.PackageDir) bool {
 	return time.Since(pkgIdx.updatedAt) > pkgIdx.resyncInterval
 }
 
-func (pkgIdx *Packages) sync(coderoots ...godoc.PackageDir) {
-	if !pkgIdx.needsSync(coderoots...) {
+func (pkgIdx *Packages) sync(codeRoots ...godoc.PackageDir) {
+	if !pkgIdx.needsSync(codeRoots...) {
 		return
 	}
 	defer func() { pkgIdx.updatedAt = time.Now() }()
@@ -44,20 +44,17 @@ func (pkgIdx *Packages) sync(coderoots ...godoc.PackageDir) {
 	// 	progressBar.Clear()
 	// }()
 
-	modules := make(moduleList, 0, math.Max(len(pkgIdx.modules), len(coderoots)))
+	modules := make(moduleList, 0, math.Max(len(pkgIdx.modules), len(codeRoots)))
 	defer func() { pkgIdx.modules = modules }()
 
 	vendor := false
-	for _, root := range coderoots {
-		debug.Println("coderoot:", root)
+	for _, root := range codeRoots {
 		mod := toModule(root)
 		pos, found := pkgIdx.modules.Search(mod)
 		if found {
-			debug.Println("found")
 			mod = pkgIdx.modules[pos]
 		}
 		if mod.Vendor {
-			debug.Println("vendor")
 			if vendor {
 				panic("multiple vendor modules")
 			}
@@ -175,7 +172,6 @@ func (mod *module) sync() (added, removed packageList) {
 				// Remember this (fully qualified) directory for the next pass.
 				pkg := pkg
 				pkg.ImportPathParts = append(pkg.ImportPathParts, name)
-				debug.Printf("queuing %s", pkg)
 				next = append(next, pkg)
 			}
 			if hasGoFiles {

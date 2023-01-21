@@ -27,25 +27,31 @@ func (p *Packages) Search(path string, exact bool) (results []godoc.PackageDir) 
 		if exact {
 			break
 		}
+		parts = append(parts, "") // Pad with empty string to search for prefixes.
 	}
 	return pkgs.PackageDirs(p.modules)
 }
 
 func (p rightPartialList) searchPackages(matches *packageList, exact []string, prefixes ...string) (pos int) {
-	defer func() { debug.Printf("searchPackages(%q, %q, %q): %v", matches, exact, prefixes, pos) }()
+	var numCommonParts int
+	if len(p) > 0 {
+		numCommonParts = len(p[0].CommonParts)
+	}
+	defer func() {
+		debug.Printf("numCommonParts=%d searchPackages(%q, %q): %d", numCommonParts, exact, prefixes, pos)
+	}()
 
-	var prefix string
-	var prefixID int
+	// The search parts are the exact parts and the first prefix, if any.
 	searchParts := exact
+	var firstPrefix string
 	if len(prefixes) > 0 {
-		prefix = prefixes[0]
-		searchParts = append(exact, prefix)
-		prefixID = len(searchParts) - 1
+		firstPrefix = prefixes[0]
+		searchParts = append(exact, firstPrefix)
 	}
 
 	var found bool
 	pos, found = p.search(searchParts...)
-	if prefix == "" {
+	if len(prefixes) == 0 {
 		// We aren't searching for prefixes.
 		if found {
 			// We have an exact match.
@@ -54,34 +60,37 @@ func (p rightPartialList) searchPackages(matches *packageList, exact []string, p
 		return
 	}
 
-	// pos is now the at the first partial that matches the exact parts and
-	// the first prefix, if any such partial exists.
-	for pos < len(p) {
-		partial := p[pos]
+	// We are searching for prefixes.
 
-		cmpExact := slices.CompareFunc(partial.CommonParts[:prefixID], exact, stringsCompare)
+	for pos < len(p) {
+		maybe := p[pos]
+
+		// Must match the exact parts.
+		cmpExact := slices.CompareFunc(maybe.CommonParts[:len(exact)], exact, stringsCompare)
 		if cmpExact > 0 {
 			// We've gone past the exact match.
 			return
 		}
 
-		hasPrefix := strings.HasPrefix(partial.CommonParts[prefixID], prefix) // Will always be true if prefix is empty.
+		// Must match the first prefix.
+		hasPrefix := strings.HasPrefix(maybe.CommonParts[len(exact)], firstPrefix) // Will always be true if prefix is empty.
 		if !hasPrefix {
 			// We've gone past the partials which match the first
 			// prefix.
 			return
 		}
 
-		// This partial matches the exact parts and the first prefix.
+		// We have a match for the exact parts and the first prefix.
 
-		exact := append(exact, partial.CommonParts[prefixID])
-		prefixes := prefixes[1:]
-		searchPos := p[pos:].searchPackages(matches, exact, prefixes...)
-		pos += searchPos + 1
+		// Extend the exact parts with the part of this partial which
+		// matches the first prefix.
+		exact := append(exact, maybe.CommonParts[len(exact)])
+		prefixes := prefixes[1:] // Drop the first prefix.
+		// Recurse to search for the rest of the prefixes.
+		pos += p[pos:].searchPackages(matches, exact, prefixes...)
 
 		// We need to search forward to the next prefix match.
-		searchPos = p[pos:].searchPackages(nil, exact, string(unicode.MaxRune))
-		pos += searchPos
+		pos += p[pos:].searchPackages(nil, exact, string(unicode.MaxRune))
 	}
 	return
 }

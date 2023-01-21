@@ -55,7 +55,6 @@ func dirsInit(extra ...Dir) {
 	dirs.hist = make([]Dir, 0, 1000)
 	dirs.hist = append(dirs.hist, extra...)
 	dirs.scan = make(chan Dir)
-
 	go dirs.walk(codeRoots())
 }
 
