@@ -9,6 +9,7 @@
 package dlog
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -52,6 +53,7 @@ func SetOutput(w io.Writer) { defaultLogger.SetOutput(w) }
 // NOTICE: This function is NOT safe to call concurrently with any other
 // functions in this package.
 func Enable()                        { defaultLogger.Enable() }
+func EnableFlagValue() flag.Value    { return defaultLogger.EnableFlag() }
 func Print(v ...any)                 { defaultLogger.Print(v...) }
 func Printf(format string, v ...any) { defaultLogger.Printf(format, v...) }
 func Println(v ...any)               { defaultLogger.Println(v...) }
@@ -61,14 +63,16 @@ func Child(prefix string) Logger     { return defaultLogger.Child(prefix) }
 // Logger is a simple debug logger API. It will not produce output until Enable
 // is first called.
 type Logger interface {
-	Child(prefix string) Logger
-	SetOutput(w io.Writer)
-	Enable()
-
 	Print(...any)
 	Printf(string, ...any)
 	Println(...any)
 	Dump(...any)
+
+	Child(prefix string) Logger
+	SetOutput(w io.Writer)
+
+	Enable()
+	EnableFlag() flag.Value
 }
 
 type logger struct {
@@ -138,3 +142,12 @@ func (l *logger) Print(v ...any)                 { l.print(v...) }
 func (l *logger) Printf(format string, v ...any) { l.printf(format, v...) }
 func (l *logger) Println(v ...any)               { l.println(v...) }
 func (l *logger) Dump(v ...any)                  { l.dump(v...) }
+
+func (l *logger) EnableFlag() flag.Value { return l }
+func (l *logger) String() string         { return "" }
+func (l *logger) IsBoolFlag() bool       { return true }
+func (l *logger) Set(string) error {
+	l.Enable()
+	l.Println("logging enabled")
+	return nil
+}
