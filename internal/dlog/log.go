@@ -146,8 +146,4 @@ func (l *logger) Dump(v ...any)                  { l.dump(v...) }
 func (l *logger) EnableFlag() flag.Value { return l }
 func (l *logger) String() string         { return "" }
 func (l *logger) IsBoolFlag() bool       { return true }
-func (l *logger) Set(string) error {
-	l.Enable()
-	l.Println("logging enabled")
-	return nil
-}
+func (l *logger) Set(string) error       { l.Enable(); return nil }
