@@ -30,7 +30,9 @@ const (
 	defaultLoggerCallDepth = loggerCallDepth + 1
 )
 
-var defaultLogger = newLogger(os.Stderr, "debug", log.Lshortfile, defaultLoggerCallDepth)
+var defaultLogger = newLogger(os.Stderr, "debug", log.Lshortfile)
+
+func Default() Logger { return defaultLogger }
 
 // SetOutput overrides the output for the top level print functions to w. By
 // default the output is os.Stderr.
@@ -53,97 +55,96 @@ func SetOutput(w io.Writer) { defaultLogger.SetOutput(w) }
 // NOTICE: This function is NOT safe to call concurrently with any other
 // functions in this package.
 func Enable()                        { defaultLogger.Enable() }
-func EnableFlagValue() flag.Value    { return defaultLogger.EnableFlag() }
-func Print(v ...any)                 { defaultLogger.Print(v...) }
-func Printf(format string, v ...any) { defaultLogger.Printf(format, v...) }
-func Println(v ...any)               { defaultLogger.Println(v...) }
+func Print(v ...any)                 { defaultLogger.Output(2, fmt.Sprint(v...)) }
+func Printf(format string, v ...any) { defaultLogger.Output(2, fmt.Sprintf(format, v...)) }
+func Println(v ...any)               { defaultLogger.Output(2, fmt.Sprintln(v...)) }
 func Dump(v ...any)                  { defaultLogger.Dump(v...) }
 func Child(prefix string) Logger     { return defaultLogger.Child(prefix) }
 
 // Logger is a simple debug logger API. It will not produce output until Enable
 // is first called.
 type Logger interface {
+	// Enable the logger so that it produces output instead of discarding
+	// it. All calls to Print, Printf, Println, and Dump after this is
+	// called will produce output.
+	//
+	// There is no way to disable the logger once enabled.
+	//
+	// It is not safe to call concurrently with other methods.
+	Enable()
+	// A bool flag.Value that calls Enable when Set is called.
+	flag.Value
+
+	// Child returns a new Logger with the same settings as the parent with
+	// the specified prefix appended to the parent logger's prefix.
+	//
+	// Child and parent loggers are enabled independently. Enabling
+	// a parent does not enable the child and vice versa.
+	Child(prefix string) Logger
+
+	// Print, Printf, Println, and SetOutput are the same as the log.Logger
+	// methods by the same name.
 	Print(...any)
 	Printf(string, ...any)
 	Println(...any)
+	SetOutput(io.Writer)
+
+	// Dump prints the spew representation of the arguments.
 	Dump(...any)
-
-	Child(prefix string) Logger
-	SetOutput(w io.Writer)
-
-	Enable()
-	EnableFlag() flag.Value
 }
 
 type logger struct {
-	print   func(...any)
-	printf  func(string, ...any)
-	println func(...any)
-	dump    func(...any)
-
-	output    io.Writer
-	prefix    string
-	flag      int
-	calldepth int
-
-	once sync.Once
-	lgr  *log.Logger
+	*log.Logger
+	mu      sync.Mutex
+	output  io.Writer
+	enable  sync.Once
+	enabled bool
 }
 
 // New returns a new Logger that does not write to output until after
 // Logger.Enable is first called.
-func New(output io.Writer, prefix string, flag int) Logger {
-	return newLogger(output, prefix, flag, loggerCallDepth)
-}
-func newLogger(output io.Writer, prefix string, flag, calldepth int) *logger {
-	if prefix != "" {
-		prefix = prefix + ": "
-	}
+func New(output io.Writer, prefix string, flag int) Logger { return newLogger(output, prefix, flag) }
+func newLogger(output io.Writer, prefix string, flag int) *logger {
 	return &logger{
-		print:   nop,
-		printf:  nopf,
-		println: nop,
-		dump:    nop,
-
-		output:    output,
-		prefix:    prefix,
-		flag:      flag,
-		calldepth: calldepth + 2,
+		output: output,
+		Logger: log.New(io.Discard, prefix+": ", flag),
 	}
 }
-func nop(...any)          {}
-func nopf(string, ...any) {}
 
 func (l *logger) Child(child string) Logger {
-	prefix := l.prefix
+	prefix := l.Prefix()
 	if child != "" {
 		prefix = strings.TrimSpace(prefix) + child
 	}
-	return newLogger(l.output, prefix, l.flag, loggerCallDepth)
+	output := l.output
+	if l.enabled {
+		output = l.Writer()
+	}
+	return newLogger(output, prefix, l.Flags())
 }
 
 func (l *logger) SetOutput(w io.Writer) {
-	if l.lgr != nil {
-		l.lgr.SetOutput(w)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.enabled {
+		panic("cannot set output after logger has been enabled")
 	}
 	l.output = w
 }
 func (l *logger) Enable() {
-	l.once.Do(func() {
-		l.lgr = log.New(l.output, l.prefix, l.flag)
-		l.print = func(v ...any) { l.lgr.Output(l.calldepth, fmt.Sprint(v...)) }
-		l.printf = func(format string, v ...any) { l.lgr.Output(l.calldepth, fmt.Sprintf(format, v...)) }
-		l.println = func(v ...any) { l.lgr.Output(l.calldepth, fmt.Sprintln(v...)) }
-		spew := spew.NewDefaultConfig()
-		l.dump = func(v ...any) { spew.Fdump(l.output, v...) }
+	l.enable.Do(func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.Logger.SetOutput(l.output)
+		l.enabled = true
 	})
 }
-func (l *logger) Print(v ...any)                 { l.print(v...) }
-func (l *logger) Printf(format string, v ...any) { l.printf(format, v...) }
-func (l *logger) Println(v ...any)               { l.println(v...) }
-func (l *logger) Dump(v ...any)                  { l.dump(v...) }
+func (l *logger) Dump(v ...any) { spew.Fdump(l.Writer(), v...) }
 
-func (l *logger) EnableFlag() flag.Value { return l }
-func (l *logger) String() string         { return "" }
-func (l *logger) IsBoolFlag() bool       { return true }
-func (l *logger) Set(string) error       { l.Enable(); return nil }
+// flag.Value
+func (l *logger) String() string   { return "" }
+func (l *logger) IsBoolFlag() bool { return true }
+func (l *logger) Set(string) error {
+	l.Enable()
+	return nil
+}

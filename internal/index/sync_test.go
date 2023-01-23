@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() { debug.Enable() }
+func init() { Debug.Enable() }
 
 type moduleSyncTest struct {
 	name           string
@@ -30,10 +30,10 @@ func (spec fileSpec) exec(t *testing.T, modDir string) {
 	for _, file := range spec.files {
 		path := filepath.Join(modDir, file)
 		if spec.remove {
-			debug.Printf("removing %s", path)
+			Debug.Printf("removing %s", path)
 			require.NoError(os.Remove(path))
 		} else {
-			debug.Printf("touching %s", path)
+			Debug.Printf("touching %s", path)
 			touchFile(t, filepath.Join(modDir, file))
 		}
 	}

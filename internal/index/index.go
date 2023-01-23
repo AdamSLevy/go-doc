@@ -2,7 +2,6 @@ package index
 
 import (
 	"encoding/json"
-	"flag"
 	"io"
 	"os"
 	"time"
@@ -11,9 +10,7 @@ import (
 	"aslevy.com/go-doc/internal/godoc"
 )
 
-var debug = dlog.Child("index")
-
-func DebugEnableFlag() flag.Value { return debug.EnableFlag() }
+var Debug = dlog.Child("index")
 
 const DefaultResyncInterval = 30 * time.Minute
 

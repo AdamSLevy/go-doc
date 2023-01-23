@@ -37,9 +37,9 @@ func TestLogger(t *testing.T) {
 			lgr.Enable()
 			lgr.Println(line)
 			output := buf.String()
-			require.Contains(output, "log_test.go")
-			require.Contains(output, test.prefix+": ")
-			require.Contains(output, line)
+			require.Contains(output, "log_test.go", "file name")
+			require.Contains(output, test.prefix+": ", "prefix")
+			require.Contains(output, line, "content")
 		})
 	}
 }

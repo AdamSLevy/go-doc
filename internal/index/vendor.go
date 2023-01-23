@@ -64,7 +64,7 @@ func (vendor *module) syncVendoredModules() moduleList {
 const modulesTxtFileName = "modules.txt"
 
 func parseVendoredModules(vendorDir string) (mods moduleList) {
-	debug.Printf("syncing vendor dir %s", vendorDir)
+	Debug.Printf("syncing vendor dir %s", vendorDir)
 
 	modTxtPath := filepath.Join(vendorDir, modulesTxtFileName)
 	f, err := os.Open(modTxtPath)
