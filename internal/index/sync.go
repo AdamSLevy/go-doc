@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/schollz/progressbar/v3"
 	"golang.org/x/exp/slices"
 
 	"aslevy.com/go-doc/internal/godoc"
@@ -17,9 +16,9 @@ import (
 
 func (pkgIdx *Packages) needsSync(codeRoots ...godoc.PackageDir) bool {
 	switch pkgIdx.mode {
-	case SkipSync:
+	case ModeSkipSync:
 		return false
-	case ForceSync:
+	case ModeForceSync:
 		return true
 	}
 
@@ -38,11 +37,11 @@ func (pkgIdx *Packages) sync(codeRoots ...godoc.PackageDir) {
 		return
 	}
 	defer func() { pkgIdx.updatedAt = time.Now() }()
-	// progressBar := newProgressBar(len(coderoots), "syncing modules...")
-	// defer func() {
-	// 	progressBar.Finish()
-	// 	progressBar.Clear()
-	// }()
+	pb := newProgressBar(pkgIdx.options, len(codeRoots), "syncing index...")
+	defer func() {
+		pb.Finish()
+		pb.Clear()
+	}()
 
 	modules := make(moduleList, 0, math.Max(len(pkgIdx.modules), len(codeRoots)))
 	defer func() { pkgIdx.modules = modules }()
@@ -58,25 +57,25 @@ func (pkgIdx *Packages) sync(codeRoots ...godoc.PackageDir) {
 			if vendor {
 				panic("multiple vendor modules")
 			}
-			modules.Insert(pkgIdx.syncVendored(mod)...)
-			// progressBar.Add(1)
+			modules.Insert(pkgIdx.syncVendored(mod, pb)...)
+			pb.Add(1)
 			vendor = true
 			continue
 		}
-		if pkgIdx.mode == ForceSync || mod.needsSync(root) {
+		if pkgIdx.mode == ModeForceSync || mod.needsSync(root) {
 			mod.Dir = root.Dir
 			added, removed := mod.sync()
 			pkgIdx.syncPartials(mod, added, removed)
 		}
 		modules.Insert(mod)
-		// progressBar.Add(1)
+		pb.Add(1)
 	}
 
 	_, removed := islices.DiffSorted(pkgIdx.modules, modules, compareModules)
-	// progressBar.ChangeMax(progressBar.GetMax() + len(removed))
+	pb.ChangeMax(pb.GetMax() + len(removed))
 	for _, mod := range removed {
 		pkgIdx.syncPartials(mod, nil, mod.Packages)
-		// progressBar.Add(1)
+		pb.Add(1)
 	}
 }
 
@@ -88,18 +87,6 @@ func (pkgIdx *Packages) syncPartials(mod module, add, remove packageList) {
 	for _, pkg := range add {
 		pkgIdx.partials.Insert(modParts, pkg)
 	}
-}
-func newProgressBar(total int, description string) *progressbar.ProgressBar {
-	termMode := true
-	return progressbar.NewOptions(total,
-		progressbar.OptionSetDescription("package index: "+description),
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionShowCount(),               // show current count e.g. 3/5
-		progressbar.OptionSetRenderBlankState(true), // render at 0%
-		progressbar.OptionClearOnFinish(),           // clear bar when done
-		progressbar.OptionUseANSICodes(termMode),
-		progressbar.OptionEnableColorCodes(termMode),
-	)
 }
 
 func (mod module) needsSync(required godoc.PackageDir) bool {

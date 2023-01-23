@@ -14,13 +14,13 @@ import (
 	islices "aslevy.com/go-doc/internal/slices"
 )
 
-func (pkgIdx *Packages) syncVendored(vendor module) (vendored moduleList) {
-	if pkgIdx.mode != ForceSync && !vendor.needsSyncVendor() {
+func (pkgIdx *Packages) syncVendored(vendor module, pb progressBar) (vendored moduleList) {
+	if pkgIdx.mode != ModeForceSync && !vendor.needsSyncVendor() {
 		return pkgIdx.modules.vendored()
 	}
 
 	vendored = vendor.syncVendoredModules()
-	// progressBar.ChangeMax(progressBar.GetMax() + len(vendored))
+	pb.ChangeMax(pb.GetMax() + len(vendored))
 	for _, mod := range vendored {
 		var pkgs packageList
 		if pos, found := pkgIdx.modules.Search(mod); found {
@@ -28,7 +28,7 @@ func (pkgIdx *Packages) syncVendored(vendor module) (vendored moduleList) {
 		}
 		added, removed := islices.DiffSorted(pkgs, mod.Packages, comparePackages)
 		pkgIdx.syncPartials(mod, added, removed)
-		// progressBar.Add(1)
+		pb.Add(1)
 	}
 	vendored.Insert(vendor)
 	return

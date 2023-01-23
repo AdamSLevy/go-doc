@@ -17,7 +17,7 @@ const DefaultResyncInterval = 30 * time.Minute
 var (
 	disabled bool = func() bool { return os.Getenv("GODOC_DISABLE_INDEX") != "" }()
 
-	Sync           Mode = Auto
+	Sync           Mode = ModeAutoSync
 	ResyncInterval      = DefaultResyncInterval
 )
 
@@ -33,8 +33,9 @@ type Packages struct {
 }
 
 type options struct {
-	mode           Mode
-	resyncInterval time.Duration
+	mode               Mode
+	resyncInterval     time.Duration
+	disableProgressBar bool
 }
 
 type Option func(*options)
@@ -46,7 +47,7 @@ func newOptions(opts ...Option) options {
 }
 func defaultOptions() options {
 	return options{
-		mode:           Auto,
+		mode:           ModeAutoSync,
 		resyncInterval: DefaultResyncInterval,
 	}
 }
@@ -62,16 +63,16 @@ func WithOptions(opts ...Option) Option {
 type Mode = string
 
 const (
-	Auto      Mode = "auto"
-	Off            = "off"
-	ForceSync      = "force"
-	SkipSync       = "skip"
+	ModeOff       Mode = "off"
+	ModeAutoSync       = "auto"
+	ModeForceSync      = "force"
+	ModeSkipSync       = "skip"
 )
 
-func WithAuto() Option      { return WithMode(Auto) }
-func WithOff() Option       { return WithMode(Off) }
-func WithForceSync() Option { return WithMode(ForceSync) }
-func WithSkipSync() Option  { return WithMode(SkipSync) }
+func WithAuto() Option      { return WithMode(ModeAutoSync) }
+func WithOff() Option       { return WithMode(ModeOff) }
+func WithForceSync() Option { return WithMode(ModeForceSync) }
+func WithSkipSync() Option  { return WithMode(ModeSkipSync) }
 func WithMode(mode Mode) Option {
 	return func(o *options) {
 		o.mode = mode
@@ -81,6 +82,12 @@ func WithMode(mode Mode) Option {
 func WithResyncInterval(interval time.Duration) Option {
 	return func(o *options) {
 		o.resyncInterval = interval
+	}
+}
+
+func WithDisableProgressBar() Option {
+	return func(o *options) {
+		o.disableProgressBar = true
 	}
 }
 
@@ -97,7 +104,7 @@ func newPackages(opts ...Option) *Packages {
 		return nil
 	}
 	o := newOptions(opts...)
-	if o.mode == Off {
+	if o.mode == ModeOff {
 		return nil
 	}
 	return &Packages{

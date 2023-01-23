@@ -32,7 +32,7 @@ func addAllFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&pager.Disabled, "pager-off", false, "don't use a pager")
 	fs.BoolVar(&open.Requested, "open", false, "open the file containing the symbol with GODOC_EDITOR or EDITOR")
 
-	fs.StringVar(&index.Sync, "index", index.Auto, "cached index modes: auto, off, force, skip")
+	fs.StringVar(&index.Sync, "index", index.ModeAutoSync, "cached index modes: auto, off, force, skip")
 
 	fs.Var((*fmtFlag)(&outfmt.Format), "fmt", fmt.Sprintf("format of output: %v", outfmt.Modes()))
 	fs.StringVar(&outfmt.BaseURL, "base-url", "https://pkg.go.dev/", "base URL for links in markdown output")
