@@ -72,7 +72,8 @@ type Logger interface {
 	//
 	// It is not safe to call concurrently with other methods.
 	Enable()
-	// A bool flag.Value that calls Enable when Set is called.
+	// A bool flag.Value that calls Enable when Set("true") is called.
+	// Set("disable") will permanently disable the logger.
 	flag.Value
 
 	// Child returns a new Logger with the same settings as the parent with
@@ -144,7 +145,13 @@ func (l *logger) Dump(v ...any) { spew.Fdump(l.Writer(), v...) }
 // flag.Value
 func (l *logger) String() string   { return "" }
 func (l *logger) IsBoolFlag() bool { return true }
-func (l *logger) Set(string) error {
-	l.Enable()
+func (l *logger) Set(val string) error {
+	switch val {
+	case "disable":
+		l.SetOutput(io.Discard)
+		fallthrough
+	case "true":
+		l.Enable()
+	}
 	return nil
 }

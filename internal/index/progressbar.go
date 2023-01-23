@@ -4,8 +4,6 @@ import (
 	"os"
 
 	"github.com/schollz/progressbar/v3"
-
-	"aslevy.com/go-doc/internal/outfmt"
 )
 
 type progressBar interface {
@@ -25,7 +23,7 @@ func (nopProgressBar) Finish() error { return nil }
 func (nopProgressBar) Clear() error  { return nil }
 
 func newProgressBar(o options, total int, description string) progressBar {
-	if o.disableProgressBar || outfmt.Format != outfmt.Term {
+	if o.disableProgressBar {
 		return nopProgressBar{}
 	}
 	return progressbar.NewOptions(total,

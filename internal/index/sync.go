@@ -37,10 +37,9 @@ func (pkgIdx *Packages) sync(codeRoots ...godoc.PackageDir) {
 		return
 	}
 	defer func() { pkgIdx.updatedAt = time.Now() }()
-	pb := newProgressBar(pkgIdx.options, len(codeRoots), "syncing index...")
+	pb := newProgressBar(pkgIdx.options, len(codeRoots), "syncing...")
 	defer func() {
 		pb.Finish()
-		pb.Clear()
 	}()
 
 	modules := make(moduleList, 0, math.Max(len(pkgIdx.modules), len(codeRoots)))

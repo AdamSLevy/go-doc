@@ -22,6 +22,7 @@ import (
 func addAllFlags(fs *flag.FlagSet) {
 	fs.Var(dlog.Default(), "debug", "enable debug logging")
 	fs.Var(index.Debug, "debug-index", "enable debug logging for index")
+
 	installCompletion := doer(install.Completion)
 	fs.Var(&installCompletion, "install-completion", "install files for Zsh completion")
 
