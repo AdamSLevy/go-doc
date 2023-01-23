@@ -85,7 +85,7 @@ func WithResyncInterval(interval time.Duration) Option {
 	}
 }
 
-func WithDisableProgressBar() Option {
+func WithNoProgressBar() Option {
 	return func(o *options) {
 		o.disableProgressBar = true
 	}

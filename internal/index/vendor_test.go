@@ -20,7 +20,13 @@ func TestParseVendoredModules(t *testing.T) {
 	}
 }
 
-func goModVendor(t *testing.T, modDir string) {
+type T interface {
+	require.TestingT
+	Helper()
+	Cleanup(func())
+}
+
+func goModVendor(t T, modDir string) {
 	t.Helper()
 	cmd := exec.Command("go", "mod", "vendor")
 	cmd.Dir = filepath.FromSlash(modDir)

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() { Debug.Enable() }
+// func init() { Debug.Enable() }
 
 type moduleSyncTest struct {
 	name           string
