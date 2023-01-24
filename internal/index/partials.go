@@ -34,7 +34,7 @@ func (p rightPartial) shouldOmit() bool { return len(p.Packages) == 0 }
 type rightPartialList []rightPartial
 
 func (p *rightPartialList) updatePartial(add bool, parts []string, pkgs ..._Package) {
-	Debug.Printf("partials.update(%q, %q)", parts, pkgs)
+	debug.Printf("partials.update(%q, %q)", parts, pkgs)
 	newPart := newRightPartial(parts, pkgs...)
 	*p, _, _ = islices.UpdateSorted(*p, newPart, comparePartials, islices.WithReplaceFunc[rightPartial](func(existing, _ *rightPartial) {
 		existing.updatePackages(add, pkgs...)
@@ -82,7 +82,7 @@ func (bns *rightPartialIndex) Remove(modParts []string, pkg _Package) {
 	bns.Update(false, modParts, pkg)
 }
 func (bns *rightPartialIndex) Update(add bool, modParts []string, pkg _Package) {
-	Debug.Printf("Packages.update(mod:%q, %q, %v)", pkg.ModulePath(), pkg.ImportPath(), add)
+	debug.Printf("Packages.update(mod:%q, %q, %v)", pkg.ModulePath(), pkg.ImportPath(), add)
 	parts := append(modParts, pkg.ImportPathParts[1:]...)
 	if len(*bns) < len(parts) {
 		*bns = append(*bns, make([]rightPartialList, len(parts)-len(*bns))...)

@@ -2,6 +2,7 @@ package open
 
 import (
 	"bytes"
+	"flag"
 	"go/ast"
 	"go/token"
 	"log"
@@ -11,13 +12,18 @@ import (
 	"strings"
 	"text/template"
 
+	"aslevy.com/go-doc/internal/completion"
 	"aslevy.com/go-doc/internal/executil"
 )
 
 var Requested bool
 
+func AddFlags(fs *flag.FlagSet) {
+	fs.BoolVar(&Requested, "open", false, "open the file containing the symbol with GODOC_EDITOR or EDITOR")
+}
+
 func IfRequested(fs *token.FileSet, node ast.Node) {
-	if !Requested {
+	if !Requested || completion.Requested {
 		return
 	}
 
@@ -29,10 +35,10 @@ func IfRequested(fs *token.FileSet, node ast.Node) {
 	log.Println("opening the symbol in your editor...")
 	pos := fs.Position(node.Pos())
 	if pos.Filename == "" {
-		log.Fatalf("failed to determine the file", pos)
+		log.Fatalf("failed to determine the file containing the symbol")
 	}
 	if pos.Line == 0 {
-		log.Printf("failed to determine the line number", pos)
+		log.Printf("failed to determine the line number of the symbol")
 	}
 
 	args := getEditorArgs(pos)

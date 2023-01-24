@@ -103,7 +103,7 @@ func (mod module) needsSync(required godoc.PackageDir) bool {
 		len(mod.Packages) == 0 || mod.UpdatedAt.IsZero() // the module has no packages
 }
 func (mod *module) sync() (added, removed packageList) {
-	Debug.Printf("syncing module %q in %s", mod.ImportPath, mod.PackageDir)
+	debug.Printf("syncing module %q in %s", mod.ImportPath, mod.PackageDir)
 	pkgs := make(packageList, 0, len(mod.Packages))
 	defer func() {
 		added, removed = islices.DiffSorted(mod.Packages, pkgs, comparePackages)
@@ -124,7 +124,7 @@ func (mod *module) sync() (added, removed packageList) {
 		this, next = next, this[0:0]
 		for _, pkg := range this {
 			dir := pkg.Dir(*mod)
-			Debug.Printf("scanning package %q in %s", pkg, dir)
+			debug.Printf("scanning package %q in %s", pkg, dir)
 			fd, err := os.Open(dir)
 			if err != nil {
 				log.Print(err)

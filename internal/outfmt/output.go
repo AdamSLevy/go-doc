@@ -26,7 +26,7 @@ func Output(w io.Writer) io.WriteCloser {
 
 	fmtr, err := Formatter(fallback)
 	if err != nil {
-		log.Println("failed to use output format %s: %w", Format, err)
+		log.Printf("failed to use output format %s: %v", Format, err)
 	} else {
 		fallback = fmtr
 	}

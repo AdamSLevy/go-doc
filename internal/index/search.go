@@ -38,7 +38,7 @@ func (p rightPartialList) searchPackages(matches *packageList, exact []string, p
 		numCommonParts = len(p[0].CommonParts)
 	}
 	defer func() {
-		Debug.Printf("numCommonParts=%d searchPackages(%q, %q): %d", numCommonParts, exact, prefixes, pos)
+		debug.Printf("numCommonParts=%d searchPackages(%q, %q): %d", numCommonParts, exact, prefixes, pos)
 	}()
 
 	// The search parts are the exact parts and the first prefix, if any.

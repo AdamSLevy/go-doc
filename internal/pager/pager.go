@@ -1,6 +1,7 @@
 package pager
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,10 @@ import (
 )
 
 var Disabled bool
+
+func AddFlags(fs *flag.FlagSet) {
+	fs.BoolVar(&Disabled, "pager-off", false, "don't use a pager")
+}
 
 // Pager execs a pager and sets its stdout to the given output. A pipe to the
 // pager's stdin is returned. The caller should write to the pipe and close it

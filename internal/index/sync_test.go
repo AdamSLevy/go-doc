@@ -31,10 +31,10 @@ func (spec fileSpec) exec(t *testing.T, modDir string) {
 	for _, file := range spec.files {
 		path := filepath.Join(modDir, file)
 		if spec.remove {
-			Debug.Printf("removing %s", path)
+			debug.Printf("removing %s", path)
 			require.NoError(os.Remove(path))
 		} else {
-			Debug.Printf("touching %s", path)
+			debug.Printf("touching %s", path)
 			touchFile(t, filepath.Join(modDir, file))
 		}
 	}

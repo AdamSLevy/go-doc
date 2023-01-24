@@ -1,11 +1,17 @@
 package install
 
 import (
+	"flag"
 	"log"
 	"os"
 
 	"aslevy.com/go-doc/internal/completion"
+	"aslevy.com/go-doc/internal/flagvar"
 )
+
+func AddFlags(fs *flag.FlagSet) {
+	fs.Var(flagvar.Do(Completion), "install-completion", "install files for Zsh completion")
+}
 
 func Completion() {
 	if completion.Requested {

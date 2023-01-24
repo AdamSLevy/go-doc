@@ -15,6 +15,7 @@
 package completion
 
 import (
+	"flag"
 	"fmt"
 	"go/token"
 	"io"
@@ -52,6 +53,12 @@ var (
 	// right-most path-segments.
 	ShortPath bool
 )
+
+func AddFlags(fs *flag.FlagSet) {
+	fs.IntVar(&Current, "arg", 0, "position of arg to complete: 1, 2 or 3")
+	fs.BoolVar(&PkgsOnly, "pkgs-only", false, "do not suggest symbols, only packages")
+	fs.BoolVar(&ShortPath, "pkgs-short", false, "suggest the shortest unique right-partial path, instead of the full import path i.e. json instead of encoding/json")
+}
 
 type Completer struct {
 	out  io.Writer

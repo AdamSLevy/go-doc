@@ -2,6 +2,7 @@ package index
 
 import (
 	"encoding/json"
+	"flag"
 	"io"
 	"os"
 	"time"
@@ -10,26 +11,46 @@ import (
 	"aslevy.com/go-doc/internal/godoc"
 )
 
-var Debug = dlog.Child("index")
-
-const DefaultResyncInterval = 30 * time.Minute
-
-var (
-	disabled bool = func() bool { return os.Getenv("GODOC_DISABLE_INDEX") != "" }()
-
-	Sync           Mode = ModeAutoSync
-	ResyncInterval      = DefaultResyncInterval
+const (
+	SyncEnvVar            = "GODOC_INDEX_MODE"
+	ResyncEnvVar          = "GODOC_INDEX_RESYNC"
+	DefaultResyncInterval = 20 * time.Minute
 )
 
-type Packages struct {
-	codeRoots []godoc.PackageDir
-	modules   moduleList
-	partials  rightPartialIndex
+var (
+	debug          = dlog.Child("index")
+	Sync           = ModeAutoSync
+	ResyncInterval = DefaultResyncInterval
+)
 
-	createdAt time.Time
-	updatedAt time.Time
+func AddFlags(fs *flag.FlagSet) {
+	fs.Var(debug.EnableFlag(), "debug-index", "enable debug logging for index")
+	fs.StringVar(&Sync, "index-mode", ParseMode(os.Getenv(SyncEnvVar)), "cached index modes: off, auto, force, skip")
+	fs.DurationVar(&ResyncInterval, "index-resync", parseResyncInterval(os.Getenv(ResyncEnvVar)), "resync index if older than this duration")
+}
+func parseResyncInterval(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return DefaultResyncInterval
+	}
+	return d
+}
 
-	options
+type Mode = string
+
+const (
+	ModeOff       Mode = "off"
+	ModeAutoSync       = "auto"
+	ModeForceSync      = "force"
+	ModeSkipSync       = "skip"
+)
+
+func ParseMode(s string) Mode {
+	switch s {
+	case ModeOff, ModeAutoSync, ModeForceSync, ModeSkipSync:
+		return s
+	}
+	return ModeAutoSync
 }
 
 type options struct {
@@ -60,15 +81,6 @@ func WithOptions(opts ...Option) Option {
 	}
 }
 
-type Mode = string
-
-const (
-	ModeOff       Mode = "off"
-	ModeAutoSync       = "auto"
-	ModeForceSync      = "force"
-	ModeSkipSync       = "skip"
-)
-
 func WithAuto() Option      { return WithMode(ModeAutoSync) }
 func WithOff() Option       { return WithMode(ModeOff) }
 func WithForceSync() Option { return WithMode(ModeForceSync) }
@@ -91,6 +103,17 @@ func WithNoProgressBar() Option {
 	}
 }
 
+type Packages struct {
+	codeRoots []godoc.PackageDir
+	modules   moduleList
+	partials  rightPartialIndex
+
+	createdAt time.Time
+	updatedAt time.Time
+
+	options
+}
+
 func New(codeRoots []godoc.PackageDir, opts ...Option) *Packages {
 	pkgIdx := newPackages(opts...)
 	if pkgIdx == nil {
@@ -100,9 +123,6 @@ func New(codeRoots []godoc.PackageDir, opts ...Option) *Packages {
 	return pkgIdx
 }
 func newPackages(opts ...Option) *Packages {
-	if disabled {
-		return nil
-	}
 	o := newOptions(opts...)
 	if o.mode == ModeOff {
 		return nil

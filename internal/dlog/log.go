@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"aslevy.com/go-doc/internal/flagvar"
 	"github.com/davecgh/go-spew/spew"
 )
 
@@ -55,6 +56,7 @@ func SetOutput(w io.Writer) { defaultLogger.SetOutput(w) }
 // NOTICE: This function is NOT safe to call concurrently with any other
 // functions in this package.
 func Enable()                        { defaultLogger.Enable() }
+func EnableFlag() flag.Value         { return defaultLogger.EnableFlag() }
 func Print(v ...any)                 { defaultLogger.Output(2, fmt.Sprint(v...)) }
 func Printf(format string, v ...any) { defaultLogger.Output(2, fmt.Sprintf(format, v...)) }
 func Println(v ...any)               { defaultLogger.Output(2, fmt.Sprintln(v...)) }
@@ -72,9 +74,7 @@ type Logger interface {
 	//
 	// It is not safe to call concurrently with other methods.
 	Enable()
-	// A bool flag.Value that calls Enable when Set("true") is called.
-	// Set("disable") will permanently disable the logger.
-	flag.Value
+	EnableFlag() flag.Value
 
 	// Child returns a new Logger with the same settings as the parent with
 	// the specified prefix appended to the parent logger's prefix.
@@ -142,16 +142,4 @@ func (l *logger) Enable() {
 }
 func (l *logger) Dump(v ...any) { spew.Fdump(l.Writer(), v...) }
 
-// flag.Value
-func (l *logger) String() string   { return "" }
-func (l *logger) IsBoolFlag() bool { return true }
-func (l *logger) Set(val string) error {
-	switch val {
-	case "disable":
-		l.SetOutput(io.Discard)
-		fallthrough
-	case "true":
-		l.Enable()
-	}
-	return nil
-}
+func (l *logger) EnableFlag() flag.Value { return flagvar.Latch(flagvar.Do(l.Enable)) }

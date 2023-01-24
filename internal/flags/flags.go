@@ -6,7 +6,7 @@ package flags
 
 import (
 	"flag"
-	"fmt"
+	"strings"
 
 	"aslevy.com/go-doc/internal/completion"
 	"aslevy.com/go-doc/internal/dlog"
@@ -20,68 +20,87 @@ import (
 
 // addAllFlags to fs.
 func addAllFlags(fs *flag.FlagSet) {
-	fs.Var(dlog.Default(), "debug", "enable debug logging")
-	fs.Var(index.Debug, "debug-index", "enable debug logging for index")
+	fs.Var(dlog.EnableFlag(), "debug", "enable debug logging")
 
-	installCompletion := doer(install.Completion)
-	fs.Var(&installCompletion, "install-completion", "install files for Zsh completion")
-
-	fs.BoolVar(&godoc.NoImports, "imports-off", false, "do not show the imports for referenced packages")
-	fs.BoolVar(&godoc.ShowStdlib, "imports-stdlib", false, "show imports for referenced stdlib packages")
-	fs.BoolVar(&godoc.NoLocation, "location-off", false, "do not show symbol file location i.e. // /path/to/circle.go +314")
-
-	fs.BoolVar(&pager.Disabled, "pager-off", false, "don't use a pager")
-	fs.BoolVar(&open.Requested, "open", false, "open the file containing the symbol with GODOC_EDITOR or EDITOR")
-
-	fs.StringVar(&index.Sync, "index", index.ModeAutoSync, "cached index modes: auto, off, force, skip")
-
-	fs.Var((*fmtFlag)(&outfmt.Format), "fmt", fmt.Sprintf("format of output: %v", outfmt.Modes()))
-	fs.StringVar(&outfmt.BaseURL, "base-url", "https://pkg.go.dev/", "base URL for links in markdown output")
-	fs.StringVar(&outfmt.GlamourStyle, "theme-term", "auto", "color theme to use with -fmt=term")
-	fs.StringVar(&outfmt.SyntaxStyle, "theme-syntax", "monokai", "color theme for syntax highlighting with -fmt=term")
-	fs.StringVar(&outfmt.SyntaxLang, "syntax-lang", "go", "language to use for comment code blocks with -fmt=term|markdown")
-	fs.BoolVar(&outfmt.NoSyntax, "syntax-off", false, "do not use syntax highlighting anywhere")
-	fs.BoolVar(&outfmt.SyntaxIgnore, "syntax-ignore", false, "ignore //syntax: directives, just use -syntax-lang")
+	install.AddFlags(fs)
+	godoc.AddFlags(fs)
+	pager.AddFlags(fs)
+	open.AddFlags(fs)
+	index.AddFlags(fs)
+	outfmt.AddFlags(fs)
 }
 
-// addCompletionFlags to fs.
-func addCompletionFlags(fs *flag.FlagSet) {
-	fs.IntVar(&completion.Current, "arg", 0, "position of arg to complete: 1, 2 or 3")
-	fs.BoolVar(&completion.PkgsOnly, "pkgs-only", false, "do not suggest symbols, only packages")
-	fs.BoolVar(&completion.ShortPath, "pkgs-short", false, "suggest the shortest unique right-partial path, instead of the full import path i.e. json instead of encoding/json")
-}
-
-type fmtFlag outfmt.Mode         // implements flag.Value
-func (f fmtFlag) String() string { return string(f) }
-func (f *fmtFlag) Set(s string) error {
-	mode, err := outfmt.ParseMode(s)
-	*f = fmtFlag(mode)
-	return err
-}
-
-// doer is a function implementing a boolean flag.Value which calls itself when
-// Set is called. It is used for functions which must be called if a flag is
-// set like -debug and -install-completion.
+// Parse is like [flag.FlagSet.Parse], but it adds all flags defined in this
+// package to fs, and also processes all flags appearing after or between
+// non-flag arguments.
 //
-// Since all arguments from the command line are also passed through to
-// completion, we must be able to disable certain flags to prevent them from
-// hijacking completion. For example if the user is typing `go doc -debug ...`
-// then we don't want `go-doc -complete ... -debug ...` to print debug logs.
+// Special handling is provided for when there are exactly 3 non-flag
+// arguments. In such case, the last two arguments are joined with a dot. This
+// is a hack to allow for a three argument syntax of:
 //
-// If the flag is set to "disable" then all subsequent appearences of the flag
-// are silently ignored and the function is never called. Note that since this
-// is a bool flag this must be specified as a single argument with an equal
-// sign, e.g. `-debug=disable`.
-type doer func()                 // implements flag.Value
-func (do doer) call()            { do() }
-func (do doer) String() string   { return "" }
-func (do doer) IsBoolFlag() bool { return true }
-func (do *doer) Set(val string) error {
-	if val == "disable" {
-		*do = nop
-	} else if val == "true" {
-		do.call()
+//	go doc <pkg> <type> <method|field>
+//
+// to be equivalent to:
+//
+//	go doc <pkg> <type>.<method|field>
+//
+// Special handling is provided for the following flags.
+//
+// # -debug
+//
+// If the -debug flag is present, then debug logging is enabled via
+// [internal/dlog.Enable].
+//
+// # -install-completion
+//
+// If the -install-completion flag is present, then the completion script
+// assets are installed and the program exits. All other arguments are ignored.
+//
+// # -complete
+//
+// If args[0] == "-complete", then completion is enabled and other completion
+// specific flags are also added to fs. The -complete flag is not recognized in
+// any other position in args.
+//
+//syntax:text
+func Parse(fs *flag.FlagSet, args ...string) {
+	if len(args) > 0 && args[0] == "-complete" {
+		args = args[1:]
+		completion.Requested = true
+		completion.AddFlags(fs)
 	}
-	return nil
+	addAllFlags(fs)
+	args = parse(fs, args...)
+
+	// <pkg> <type> <method|field> -> <pkg> <type>.<method|field>
+	if len(args) == 3 {
+		method := args[2]
+		args = args[:2]
+		args[1] += "." + method
+	}
+
+	// Final call to parse with only the non-flag arguments so that
+	// fs.Args() returns the correct values.
+	fs.Parse(args)
 }
-func nop() {}
+
+// parse calls fs.Parse(args) recursively until all -flag arguments have been
+// parsed, including those appearing after non-flag arguments. The non-flag
+// arguments are returned.
+func parse(fs *flag.FlagSet, args ...string) []string {
+	// Parse everything up to the first non-flag argument.
+	fs.Parse(args)
+
+	// Collect the non-flag arguments up to the next flag argument, then
+	// recurse to parse the next set of arguments as flags again.
+	args = make([]string, 0, fs.NArg())
+	for i, arg := range fs.Args() {
+		if strings.HasPrefix(arg, "-") {
+			return append(args, parse(fs, fs.Args()[i:]...)...)
+		}
+		args = append(args, arg)
+	}
+
+	// We have parsed all flags and collected all non-flag arguments.
+	return args
+}
