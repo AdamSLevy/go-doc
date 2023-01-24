@@ -2,8 +2,11 @@ package index
 
 import (
 	"go/build"
+	"math/rand"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"aslevy.com/go-doc/internal/godoc"
 	"github.com/stretchr/testify/assert"
@@ -75,11 +78,13 @@ var indexTests = []indexTest{{
 	}, {
 		name:    "ht",
 		paths:   []string{"ht"},
-		results: []string{"html", "net/http", "net/http/httptrace"},
+		results: []string{"html", "html/template", "net/http", "net/http/httptrace"},
 	}, {
 		name:  "a",
 		paths: []string{"a"},
 		results: []string{
+			"archive/tar",
+			"archive/zip",
 			"crypto/aes",
 			"encoding/ascii85",
 			"encoding/asn1",
@@ -93,6 +98,7 @@ var indexTests = []indexTest{{
 			"cmd/asm",
 			"cmd/internal/archive",
 			"cmd/asm/internal/arch",
+			"cmd/internal/obj/arm64",
 			"cmd/link/internal/arm64",
 		},
 	}, {
@@ -103,6 +109,7 @@ var indexTests = []indexTest{{
 			"cmd/addr2line",
 			"cmd/api",
 			"cmd/asm",
+			"cmd/asm/internal/arch",
 		},
 	}, {
 		name:  "as",
@@ -113,6 +120,7 @@ var indexTests = []indexTest{{
 			"go/ast",
 			"runtime/asan",
 			"cmd/asm",
+			"cmd/asm/internal/arch",
 		},
 	}},
 }}
@@ -120,5 +128,110 @@ var indexTests = []indexTest{{
 func TestSearch(t *testing.T) {
 	for _, test := range indexTests {
 		t.Run(test.name, func(t *testing.T) { test.run(t) })
+	}
+}
+
+func BenchmarkSearch_stdlib(b *testing.B) {
+	var pkgIdx *Packages
+	var matches []godoc.PackageDir
+	codeRoots := []godoc.PackageDir{
+		{"", filepath.Join(build.Default.GOROOT, "src")},
+		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
+	}
+	var randomPartialSearchPath func() string
+	exact := false
+	runBenchmark(b, func() {
+		pkgIdx = New(codeRoots, WithNoProgressBar())
+		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx)
+	}, func() {
+		path := randomPartialSearchPath()
+		matches = pkgIdx.Search(path, exact)
+	})
+	b.Log("num matches: ", len(matches))
+}
+
+func TestRandomPartialSearchPath(t *testing.T) {
+	codeRoots := []godoc.PackageDir{
+		{"", filepath.Join(build.Default.GOROOT, "src")},
+		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
+	}
+	pkgIdx := New(codeRoots, WithNoProgressBar())
+
+	randomPartialSearchPath := newRandomPartialSearchPathFunc(pkgIdx)
+
+	paths := make(map[string]struct{})
+	var duplicates int
+	const total = 1000
+	for i := 0; i < total; i++ {
+		path := randomPartialSearchPath()
+		if _, duplicate := paths[path]; duplicate {
+			// t.Log("duplicate path:", path, i)
+			duplicates++
+			continue
+		}
+		// t.Log("unique path:", path, i)
+		paths[path] = struct{}{}
+	}
+
+	t.Log("duplicates:", duplicates)
+	require.Less(t, duplicates, total/2, "too many duplicates")
+}
+func BenchmarkRandomPartialSearchPath(b *testing.B) {
+	var path string
+	var pkgIdx *Packages
+	codeRoots := []godoc.PackageDir{
+		{"", filepath.Join(build.Default.GOROOT, "src")},
+		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
+	}
+	var randomPartialSearchPath func() string
+	runBenchmark(b, func() {
+		pkgIdx = New(codeRoots, WithNoProgressBar())
+		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx)
+	}, func() {
+		path = randomPartialSearchPath()
+	})
+	b.Log("path: ", path)
+}
+
+func init() { rand.Seed(time.Now().UnixNano()) }
+func newRandomPartialSearchPathFunc(pkgIdx *Packages) func() string {
+	// build list of all package import paths split into parts.
+	var pkgs [][]string
+	for _, mod := range pkgIdx.modules {
+		var modParts []string
+		if mod.ImportPath != "" {
+			modParts = strings.Split(mod.ImportPath, "/")
+		}
+		for _, pkg := range mod.Packages {
+			pkgParts := append(modParts, pkg.ImportPathParts[1:]...)
+			pkgs = append(pkgs, pkgParts)
+		}
+	}
+	return func() string {
+		// random package
+		pkg := pkgs[rand.Intn(len(pkgs))]
+
+		// random selection of one or more parts
+		first := rand.Intn(len(pkg))
+		last := rand.Intn(len(pkg))
+		if first > last {
+			first, last = last, first
+		}
+
+		parts := pkg[first : last+1]
+
+		// random truncation of each part
+		var path string
+		minLen := 3
+		for _, part := range parts {
+			partLen := minLen
+			if partLen > len(part) {
+				partLen = len(part)
+			} else if partLen < len(part) {
+				partLen += rand.Intn(len(part) - partLen)
+			}
+			path += part[:partLen] + "/"
+		}
+		return path[:len(path)-1] // omit trailing slash
 	}
 }

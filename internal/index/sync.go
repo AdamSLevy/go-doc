@@ -14,7 +14,7 @@ import (
 	islices "aslevy.com/go-doc/internal/slices"
 )
 
-func (pkgIdx *Packages) needsSync(codeRoots ...godoc.PackageDir) bool {
+func (pkgIdx *Packages) needsSync(codeRoots []godoc.PackageDir) bool {
 	switch pkgIdx.mode {
 	case ModeSkipSync:
 		return false
@@ -32,11 +32,10 @@ func (pkgIdx *Packages) needsSync(codeRoots ...godoc.PackageDir) bool {
 	return time.Since(pkgIdx.updatedAt) > pkgIdx.resyncInterval
 }
 
-func (pkgIdx *Packages) sync(codeRoots ...godoc.PackageDir) {
-	if !pkgIdx.needsSync(codeRoots...) {
+func (pkgIdx *Packages) sync(codeRoots []godoc.PackageDir) (changed bool) {
+	if !pkgIdx.needsSync(codeRoots) {
 		return
 	}
-	defer func() { pkgIdx.updatedAt = time.Now() }()
 	pb := newProgressBar(pkgIdx.options, len(codeRoots), "syncing...")
 	defer func() {
 		pb.Finish()
@@ -56,29 +55,37 @@ func (pkgIdx *Packages) sync(codeRoots ...godoc.PackageDir) {
 			if vendor {
 				panic("multiple vendor modules")
 			}
-			modules.Insert(pkgIdx.syncVendored(mod, pb)...)
-			pb.Add(1)
 			vendor = true
+
+			vendored, vendorChanged := pkgIdx.syncVendored(mod, pb)
+			modules.Insert(vendored...)
+			changed = changed || vendorChanged
+			pb.Add(1)
 			continue
 		}
 		if pkgIdx.mode == ModeForceSync || mod.needsSync(root) {
 			mod.Dir = root.Dir
 			added, removed := mod.sync()
-			pkgIdx.syncPartials(mod, added, removed)
+			changed = pkgIdx.syncPartials(mod, added, removed) || changed
 		}
 		modules.Insert(mod)
 		pb.Add(1)
 	}
 
 	_, removed := islices.DiffSorted(pkgIdx.modules, modules, compareModules)
+	changed = changed || len(removed) > 0
 	pb.ChangeMax(pb.GetMax() + len(removed))
 	for _, mod := range removed {
 		pkgIdx.syncPartials(mod, nil, mod.Packages)
 		pb.Add(1)
 	}
+	return
 }
 
-func (pkgIdx *Packages) syncPartials(mod module, add, remove packageList) {
+func (pkgIdx *Packages) syncPartials(mod module, add, remove packageList) (changed bool) {
+	if len(add) == 0 && len(remove) == 0 {
+		return false
+	}
 	modParts := strings.Split(mod.ImportPath, "/")
 	for _, pkg := range remove {
 		pkgIdx.partials.Remove(modParts, pkg)
@@ -86,6 +93,7 @@ func (pkgIdx *Packages) syncPartials(mod module, add, remove packageList) {
 	for _, pkg := range add {
 		pkgIdx.partials.Insert(modParts, pkg)
 	}
+	return true
 }
 
 func (mod module) needsSync(required godoc.PackageDir) bool {

@@ -91,12 +91,12 @@ func WithNoProgressBar() Option {
 	}
 }
 
-func New(coderoots []godoc.PackageDir, opts ...Option) *Packages {
+func New(codeRoots []godoc.PackageDir, opts ...Option) *Packages {
 	pkgIdx := newPackages(opts...)
 	if pkgIdx == nil {
 		return nil
 	}
-	pkgIdx.sync(coderoots...)
+	pkgIdx.sync(codeRoots)
 	return pkgIdx
 }
 func newPackages(opts ...Option) *Packages {
@@ -113,23 +113,30 @@ func newPackages(opts ...Option) *Packages {
 	}
 }
 
-func Load(path string, required []godoc.PackageDir, opts ...Option) (_ *Packages, err error) {
-	pkgIdx := newPackages(opts...)
+func LoadSync(path string, required []godoc.PackageDir, opts ...Option) (pkgIdx *Packages, err error) {
+	pkgIdx = newPackages(opts...)
 	if pkgIdx == nil {
-		return nil, nil
+		return
 	}
-	defer func() { err = pkgIdx.Save(path) }()
-	f, err := os.Open(path)
+
+	defer func() {
+		changed := pkgIdx.sync(required)
+		if changed {
+			err = pkgIdx.Save(path)
+		}
+	}()
+
+	var f *os.File
+	f, err = os.Open(path)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer f.Close()
 
-	return pkgIdx, pkgIdx.decode(f, required)
-
+	err = pkgIdx.decode(f)
+	return
 }
-func (pkgIdx *Packages) decode(r io.Reader, required []godoc.PackageDir) error {
-	defer pkgIdx.sync(required...)
+func (pkgIdx *Packages) decode(r io.Reader) error {
 	var p packagesJSON
 	if err := json.NewDecoder(r).Decode(&p); err != nil {
 		return err
@@ -138,12 +145,13 @@ func (pkgIdx *Packages) decode(r io.Reader, required []godoc.PackageDir) error {
 	return nil
 }
 
-func (pkgIdx Packages) Save(path string) error {
+func (pkgIdx *Packages) Save(path string) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	pkgIdx.updatedAt = time.Now()
 	return pkgIdx.encode(f)
 }
 func (pkgIdx Packages) encode(w io.Writer) error {

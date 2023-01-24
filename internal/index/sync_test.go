@@ -1,6 +1,7 @@
 package index
 
 import (
+	"go/build"
 	"os"
 	"path/filepath"
 	"testing"
@@ -130,4 +131,60 @@ func toPackageList(mod module, importPaths ...string) (pkgs packageList) {
 		pkgs.Insert(mod.newPackage(path))
 	}
 	return
+}
+
+func BenchmarkModuleSync(b *testing.B) {
+	var m module
+	runBenchmark(b, func() {
+		goModVendor(b, "testdata/module/")
+		m = newModule("example.com/module/vendor", "testdata/module/vendor")
+	}, func() {
+		m.Packages = nil
+		m.sync()
+	})
+	b.Log("num packages: ", len(m.Packages))
+	// b.Log("packages:", m.Packages)
+}
+func BenchmarkModuleSync_stdlib(b *testing.B) {
+	var m module
+	runBenchmark(b, func() {
+		m = newModule("", filepath.Join(build.Default.GOROOT, "src"))
+	}, func() {
+		m.Packages = nil
+		m.sync()
+	})
+	b.Log("num packages: ", len(m.Packages))
+	// b.Log("packages:", m.Packages)
+}
+
+func BenchmarkNewSync_stdlib(b *testing.B) {
+	var pkgIdx *Packages
+	codeRoots := []godoc.PackageDir{
+		{"", filepath.Join(build.Default.GOROOT, "src")},
+		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
+	}
+	runBenchmark(b, nil, func() {
+		pkgIdx = New(codeRoots, WithNoProgressBar())
+	})
+
+	b.Log("longest import path: ", len(pkgIdx.partials))
+	b.Log("num modules: ", len(pkgIdx.modules))
+}
+func BenchmarkSync_unchanged_stdlib(b *testing.B) {
+	var changed bool
+	var pkgIdx *Packages
+	codeRoots := []godoc.PackageDir{
+		{"", filepath.Join(build.Default.GOROOT, "src")},
+		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
+	}
+	runBenchmark(b, func() {
+		pkgIdx = New(codeRoots, WithNoProgressBar())
+	}, func() {
+		pkgIdx.updatedAt = time.Time{}
+		changed = pkgIdx.sync(codeRoots)
+	})
+
+	b.Log("longest import path: ", len(pkgIdx.partials))
+	b.Log("num modules: ", len(pkgIdx.modules))
+	b.Log("changed: ", changed)
 }

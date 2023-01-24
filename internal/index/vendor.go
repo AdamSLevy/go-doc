@@ -14,9 +14,10 @@ import (
 	islices "aslevy.com/go-doc/internal/slices"
 )
 
-func (pkgIdx *Packages) syncVendored(vendor module, pb progressBar) (vendored moduleList) {
+func (pkgIdx *Packages) syncVendored(vendor module, pb progressBar) (vendored moduleList, changed bool) {
 	if pkgIdx.mode != ModeForceSync && !vendor.needsSyncVendor() {
-		return pkgIdx.modules.vendored()
+		vendored = pkgIdx.modules.vendored()
+		return
 	}
 
 	vendored = vendor.syncVendoredModules()
@@ -27,7 +28,7 @@ func (pkgIdx *Packages) syncVendored(vendor module, pb progressBar) (vendored mo
 			pkgs = pkgIdx.modules[pos].Packages
 		}
 		added, removed := islices.DiffSorted(pkgs, mod.Packages, comparePackages)
-		pkgIdx.syncPartials(mod, added, removed)
+		changed = pkgIdx.syncPartials(mod, added, removed) || changed
 		pb.Add(1)
 	}
 	vendored.Insert(vendor)

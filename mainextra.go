@@ -22,7 +22,7 @@ func packageIndex() *index.Packages {
 		dlog.Printf("failed to create index cache dir: %v", err)
 		return nil
 	}
-	pkgIdx, err := index.Load(path, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
+	pkgIdx, err := index.LoadSync(path, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
 	if err != nil {
 		dlog.Printf("index.UpdateOrCreate: %v", err)
 	}

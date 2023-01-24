@@ -1,6 +1,8 @@
 package index
 
 import (
+	"encoding/json"
+	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
@@ -104,6 +106,17 @@ const (
 
 type class int
 
+func parseClass(s string) (class, error) {
+	switch s {
+	case "stdlib":
+		return classStdlib, nil
+	case "local":
+		return classLocal, nil
+	case "required":
+		return classRequired, nil
+	}
+	return -1, fmt.Errorf("invalid class: %s", s)
+}
 func (c class) String() string {
 	switch c {
 	case classStdlib:
@@ -114,6 +127,16 @@ func (c class) String() string {
 		return "required"
 	}
 	return "unknown"
+}
+func (c class) MarshalJSON() ([]byte, error) { return json.Marshal(c.String()) }
+func (c *class) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	var err error
+	*c, err = parseClass(s)
+	return err
 }
 
 // _Package is an internal representation of a package used for sorting.

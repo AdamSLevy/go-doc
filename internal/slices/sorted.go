@@ -46,6 +46,7 @@ func WithReplace[E any]() Option[E] {
 func WithReplaceFunc[E any](replace func(existing, target *E)) Option[E] {
 	return func(o *options[E]) {
 		o.replaceFunc = replace
+		o.replace = true
 	}
 }
 func WithKeepOriginal[E any]() Option[E] {
