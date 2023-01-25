@@ -42,7 +42,10 @@ func (pkgIdx *Packages) sync(codeRoots []godoc.PackageDir) (changed bool) {
 	}()
 
 	modules := make(moduleList, 0, math.Max(len(pkgIdx.modules), len(codeRoots)))
-	defer func() { pkgIdx.modules = modules }()
+	defer func() {
+		pkgIdx.codeRoots = codeRoots
+		pkgIdx.modules = modules
+	}()
 
 	vendor := false
 	for _, root := range codeRoots {
