@@ -3,19 +3,31 @@ package index
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	_dlog "aslevy.com/go-doc/internal/dlog"
+	"aslevy.com/go-doc/internal/flagvar"
 	"aslevy.com/go-doc/internal/godoc"
 )
+
+// IMPROVEMENTS:
+// - lazy loading:
+//  - load/sync index only after first search
+//  - load only the partials list required for the search
+//    - This will require splitting the modules and each partials lists into
+//      separate files.
+//  - stop the search at the first result and find a way to resume the search later
 
 const (
 	SyncEnvVar            = "GODOC_INDEX_MODE"
 	ResyncEnvVar          = "GODOC_INDEX_RESYNC"
 	DefaultResyncInterval = 20 * time.Minute
+	NoProgressBar         = "GODOC_NO_PROGRESS_BAR"
 )
 
 var (
@@ -26,7 +38,8 @@ var (
 
 func AddFlags(fs *flag.FlagSet) {
 	fs.Var(dlog.EnableFlag(), "debug-index", "enable debug logging for index")
-	fs.StringVar(&Sync, "index-mode", ParseMode(os.Getenv(SyncEnvVar)), "cached index modes: off, auto, force, skip")
+	Sync, _ = ParseMode(os.Getenv(SyncEnvVar))
+	fs.Var(flagvar.Parse(&Sync, ParseMode), "index-mode", fmt.Sprintf("cached index modes: %s", modes()))
 	fs.DurationVar(&ResyncInterval, "index-resync", parseResyncInterval(os.Getenv(ResyncEnvVar)), "resync index if older than this duration")
 }
 func parseResyncInterval(s string) time.Duration {
@@ -46,12 +59,16 @@ const (
 	ModeSkipSync       = "skip"
 )
 
-func ParseMode(s string) Mode {
+func modes() string {
+	return strings.Join([]Mode{ModeOff, ModeAutoSync, ModeForceSync, ModeSkipSync}, ", ")
+}
+
+func ParseMode(s string) (Mode, error) {
 	switch s {
 	case ModeOff, ModeAutoSync, ModeForceSync, ModeSkipSync:
-		return s
+		return s, nil
 	}
-	return ModeAutoSync
+	return ModeAutoSync, fmt.Errorf("invalid index mode: %q", s)
 }
 
 type options struct {
