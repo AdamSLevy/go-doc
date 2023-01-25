@@ -142,4 +142,6 @@ func (l *logger) Enable() {
 }
 func (l *logger) Dump(v ...any) { spew.Fdump(l.Writer(), v...) }
 
-func (l *logger) EnableFlag() flag.Value { return flagvar.Latch(flagvar.Do(l.Enable)) }
+func (l *logger) EnableFlag() flag.Value {
+	return flagvar.Do(l.Enable)
+}

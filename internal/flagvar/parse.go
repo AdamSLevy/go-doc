@@ -14,7 +14,12 @@ type parseValue[E any] struct {
 	parse func(string) (E, error)
 }
 
-func (p parseValue[E]) String() string { return fmt.Sprint(*p.val) }
+func (p parseValue[E]) String() string {
+	if p.val == nil {
+		return ""
+	}
+	return fmt.Sprint(*p.val)
+}
 func (p *parseValue[E]) Set(s string) error {
 	v, err := p.parse(s)
 	if err != nil {

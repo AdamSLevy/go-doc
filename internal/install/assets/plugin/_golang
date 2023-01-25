@@ -207,7 +207,7 @@ __go_package_symbols() {
 
   local -a allSyms
   local argNum=${#line}
-  local -a DISABLE_OPTS=( "-debug=disable" "-install-completion=disable" )
+  local -a DISABLE_OPTS=( "-debug=false" "-debug-index=false" "-install-completion=false" "-open=false" )
   allSyms=("${(@f)$(go-doc -complete -arg ${argNum} ${DISABLE_OPTS} ${GODOC_OPTS} ${words[2,-1]})}") || return 1
 
   # completions for the third argument are always prefixed with the type from
