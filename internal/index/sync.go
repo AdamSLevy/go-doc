@@ -45,6 +45,7 @@ func (pkgIdx *Packages) sync(codeRoots []godoc.PackageDir) (changed bool) {
 	defer func() {
 		pkgIdx.codeRoots = codeRoots
 		pkgIdx.modules = modules
+		changed = changed || pkgIdx.options.mode == ModeForceSync
 	}()
 
 	vendor := false
