@@ -18,6 +18,17 @@ install:
 licenses.csv: go.mod go.sum
 	go-licenses csv . | tee licenses.csv
 
+internal/index/benchmarks.txt: internal/index/*.go
+	go test -bench=. -benchmem -run NOTHING ./internal/index > internal/index/benchmarks.txt
+
+internal/index/bench-summary.txt: internal/index/benchmarks.txt
+	grep '^Benchmark' internal/index/benchmarks.txt | sort > internal/index/bench-summary.txt
+
+.PHONY: bench-summary
+bench-summary: internal/index/bench-summary.txt
+	cat internal/index/bench-summary.txt
+
+
 .PHONY: diff diff-all diff-main diff-dirs diff-pkg
 
 diff:
@@ -39,3 +50,4 @@ diff-pkg:
 
 diff-test:
 	git diff -p official-go-doc -- doc_test.go
+
