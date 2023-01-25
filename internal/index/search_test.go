@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"aslevy.com/go-doc/internal/godoc"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// func init() { dlog.Enable() }
 
 type indexTest struct {
 	name        string
@@ -27,7 +28,7 @@ type searchTest struct {
 
 func (test indexTest) run(t *testing.T) {
 	t.Helper()
-	pkgs := New(test.mods)
+	pkgs := New(test.mods, WithNoProgressBar())
 	for _, searchTest := range test.searchTests {
 		t.Run(searchTest.name, func(t *testing.T) { searchTest.run(t, pkgs) })
 	}
@@ -38,13 +39,17 @@ func (test searchTest) run(t *testing.T, pkgs *Packages) {
 	for _, path := range test.paths {
 		t.Run("path/"+path, func(t *testing.T) {
 			results := pkgs.Search(path, test.exact)
-			require.Len(t, results, len(test.results))
-			for i, result := range results {
-				assert.Equal(t, test.results[i], result.ImportPath)
-				assert.NotEmpty(t, result.Dir)
-			}
+			require.Equal(t, test.results, importPaths(results))
 		})
 	}
+}
+
+func importPaths(pkgs []godoc.PackageDir) []string {
+	paths := make([]string, len(pkgs))
+	for i, pkg := range pkgs {
+		paths[i] = pkg.ImportPath
+	}
+	return paths
 }
 
 var GOROOT = build.Default.GOROOT
@@ -69,7 +74,7 @@ var indexTests = []indexTest{{
 	}, {
 		name:    "http",
 		paths:   []string{"http"},
-		results: []string{"net/http", "net/http/httptrace"},
+		results: []string{"net/http", "net/http/cgi", "net/http/cookiejar", "net/http/fcgi", "net/http/httptest", "net/http/httptrace", "net/http/httputil", "net/http/internal", "net/http/pprof", "net/http/internal/ascii", "net/http/internal/testcert"},
 	}, {
 		name:    "http",
 		paths:   []string{"http"},
@@ -78,50 +83,19 @@ var indexTests = []indexTest{{
 	}, {
 		name:    "ht",
 		paths:   []string{"ht"},
-		results: []string{"html", "html/template", "net/http", "net/http/httptrace"},
+		results: []string{"html", "html/template", "net/http", "net/http/cgi", "net/http/cookiejar", "net/http/fcgi", "net/http/httptest", "net/http/httptrace", "net/http/httputil", "net/http/internal", "net/http/pprof", "net/http/internal/ascii", "net/http/internal/testcert"},
 	}, {
-		name:  "a",
-		paths: []string{"a"},
-		results: []string{
-			"archive/tar",
-			"archive/zip",
-			"crypto/aes",
-			"encoding/ascii85",
-			"encoding/asn1",
-			"go/ast",
-			"hash/adler32",
-			"internal/abi",
-			"runtime/asan",
-			"sync/atomic",
-			"cmd/addr2line",
-			"cmd/api",
-			"cmd/asm",
-			"cmd/internal/archive",
-			"cmd/asm/internal/arch",
-			"cmd/internal/obj/arm64",
-			"cmd/link/internal/arm64",
-		},
+		name:    "a",
+		paths:   []string{"a"},
+		results: []string{"archive/tar", "archive/zip", "crypto/aes", "encoding/ascii85", "encoding/asn1", "go/ast", "hash/adler32", "internal/abi", "runtime/asan", "sync/atomic", "runtime/internal/atomic", "net/http/internal/ascii", "cmd/addr2line", "cmd/api", "cmd/asm", "cmd/internal/archive", "cmd/asm/internal/arch", "cmd/asm/internal/asm", "cmd/asm/internal/flags", "cmd/asm/internal/lex", "cmd/compile/internal/abi", "cmd/compile/internal/abt", "cmd/compile/internal/amd64", "cmd/compile/internal/arm", "cmd/compile/internal/arm64", "cmd/go/internal/auth", "cmd/internal/obj/arm", "cmd/internal/obj/arm64", "cmd/link/internal/amd64", "cmd/link/internal/arm", "cmd/link/internal/arm64"},
 	}, {
-		name:  "c/a",
-		paths: []string{"c/a"},
-		results: []string{
-			"crypto/aes",
-			"cmd/addr2line",
-			"cmd/api",
-			"cmd/asm",
-			"cmd/asm/internal/arch",
-		},
+		name:    "c/a",
+		paths:   []string{"c/a"},
+		results: []string{"crypto/aes", "cmd/addr2line", "cmd/api", "cmd/asm", "cmd/asm/internal/arch", "cmd/asm/internal/asm", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
 	}, {
-		name:  "as",
-		paths: []string{"as"},
-		results: []string{
-			"encoding/ascii85",
-			"encoding/asn1",
-			"go/ast",
-			"runtime/asan",
-			"cmd/asm",
-			"cmd/asm/internal/arch",
-		},
+		name:    "as",
+		paths:   []string{"as"},
+		results: []string{"encoding/ascii85", "encoding/asn1", "go/ast", "runtime/asan", "net/http/internal/ascii", "cmd/asm", "cmd/asm/internal/arch", "cmd/asm/internal/asm", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
 	}},
 }}
 

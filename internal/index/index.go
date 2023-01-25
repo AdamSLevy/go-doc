@@ -5,9 +5,10 @@ import (
 	"flag"
 	"io"
 	"os"
+	"runtime/debug"
 	"time"
 
-	"aslevy.com/go-doc/internal/dlog"
+	_dlog "aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/godoc"
 )
 
@@ -18,13 +19,13 @@ const (
 )
 
 var (
-	debug          = dlog.Child("index")
+	dlog           = _dlog.Child("index")
 	Sync           = ModeAutoSync
 	ResyncInterval = DefaultResyncInterval
 )
 
 func AddFlags(fs *flag.FlagSet) {
-	fs.Var(debug.EnableFlag(), "debug-index", "enable debug logging for index")
+	fs.Var(dlog.EnableFlag(), "debug-index", "enable debug logging for index")
 	fs.StringVar(&Sync, "index-mode", ParseMode(os.Getenv(SyncEnvVar)), "cached index modes: off, auto, force, skip")
 	fs.DurationVar(&ResyncInterval, "index-resync", parseResyncInterval(os.Getenv(ResyncEnvVar)), "resync index if older than this duration")
 }
@@ -111,6 +112,8 @@ type Packages struct {
 	createdAt time.Time
 	updatedAt time.Time
 
+	goDocBuildSum string
+
 	options
 }
 
@@ -184,6 +187,7 @@ type packagesJSON struct {
 	Partials  rightPartialIndex
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	BuildSum  string
 }
 
 func (pkgIdx Packages) toPackagesJSON() packagesJSON {
@@ -193,6 +197,7 @@ func (pkgIdx Packages) toPackagesJSON() packagesJSON {
 		Partials:  pkgIdx.partials,
 		CreatedAt: pkgIdx.createdAt,
 		UpdatedAt: pkgIdx.updatedAt,
+		BuildSum:  getBuildSum(),
 	}
 }
 func (pkgIdx *Packages) fromPackagesJSON(p packagesJSON) {
@@ -201,4 +206,16 @@ func (pkgIdx *Packages) fromPackagesJSON(p packagesJSON) {
 	pkgIdx.partials = p.Partials
 	pkgIdx.createdAt = p.CreatedAt
 	pkgIdx.updatedAt = p.UpdatedAt
+
+	buildSum := getBuildSum()
+	if buildSum != "" && buildSum != p.BuildSum {
+		pkgIdx.options.mode = ModeForceSync
+	}
+}
+
+func getBuildSum() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		return info.Main.Sum
+	}
+	return ""
 }

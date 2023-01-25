@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// func init() { Debug.Enable() }
+// func init() { dlog.Enable() }
 
 type moduleSyncTest struct {
 	name           string
@@ -31,10 +31,10 @@ func (spec fileSpec) exec(t *testing.T, modDir string) {
 	for _, file := range spec.files {
 		path := filepath.Join(modDir, file)
 		if spec.remove {
-			debug.Printf("removing %s", path)
+			dlog.Printf("removing %s", path)
 			require.NoError(os.Remove(path))
 		} else {
-			debug.Printf("touching %s", path)
+			dlog.Printf("touching %s", path)
 			touchFile(t, filepath.Join(modDir, file))
 		}
 	}
@@ -59,16 +59,26 @@ var syncTests = []moduleSyncTest{{
 	name: "initial sync",
 	files: []fileSpec{{
 		files: []string{
-			"internal/formerpkg/formerpkg.go",
-			"internal/formerpkg/formerpkg.yaml",
+			"main.go",
+			"internal/formerpkg/pkg.go",
+			"internal/formerpkg/yaml.yaml",
 			"internal/pkg/pkg.go",
-			"internal/removed/removed.go",
-			"src/unchanged/unchanged.go",
+			"internal/pkg/nested/pkg.go",
+			"internal/pkg/nested/deep/deep/deep/pkg.go",
+			"internal/pkg/deeply/pkg.go",
+			"internal/pkg/deeply/deep/pkg.go",
+			"internal/removed/pkg.go",
+			"src/unchanged/pkg.go",
 		},
 	}},
 	added: []string{
+		"",
 		"internal/formerpkg",
 		"internal/pkg",
+		"internal/pkg/nested",
+		"internal/pkg/nested/deep/deep/deep",
+		"internal/pkg/deeply",
+		"internal/pkg/deeply/deep",
 		"internal/removed",
 		"src/unchanged",
 	},
@@ -76,12 +86,12 @@ var syncTests = []moduleSyncTest{{
 	name: "add and remove packages",
 	files: []fileSpec{{
 		files: []string{
-			"internal/added/added.go",
+			"internal/added/pkg.go",
 		},
 	}, {
 		files: []string{
-			"internal/formerpkg/formerpkg.go",
-			"internal/removed/removed.go",
+			"internal/formerpkg/pkg.go",
+			"internal/removed/pkg.go",
 			"internal/removed/.",
 		},
 		remove: true,

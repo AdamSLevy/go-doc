@@ -103,7 +103,7 @@ func (mod module) needsSync(required godoc.PackageDir) bool {
 		len(mod.Packages) == 0 || mod.UpdatedAt.IsZero() // the module has no packages
 }
 func (mod *module) sync() (added, removed packageList) {
-	debug.Printf("syncing module %q in %s", mod.ImportPath, mod.PackageDir)
+	dlog.Printf("syncing module %q in %s", mod.ImportPath, mod.PackageDir)
 	pkgs := make(packageList, 0, len(mod.Packages))
 	defer func() {
 		added, removed = islices.DiffSorted(mod.Packages, pkgs, comparePackages)
@@ -121,10 +121,11 @@ func (mod *module) sync() (added, removed packageList) {
 	next := []_Package{mod.newPackage(mod.ImportPath)}
 
 	for len(next) > 0 {
+		dlog.Printf("descending")
 		this, next = next, this[0:0]
 		for _, pkg := range this {
+			dlog.Printf("walking %q", pkg)
 			dir := pkg.Dir(*mod)
-			debug.Printf("scanning package %q in %s", pkg, dir)
 			fd, err := os.Open(dir)
 			if err != nil {
 				log.Print(err)
@@ -144,6 +145,8 @@ func (mod *module) sync() (added, removed packageList) {
 				// source files, but ignore them otherwise.
 				if !entry.IsDir() {
 					if !hasGoFiles && strings.HasSuffix(name, ".go") {
+						dlog.Printf("%q has go files", pkg)
+						pkgs.Insert(pkg)
 						hasGoFiles = true
 					}
 					continue
@@ -165,11 +168,10 @@ func (mod *module) sync() (added, removed packageList) {
 				}
 				// Remember this (fully qualified) directory for the next pass.
 				pkg := pkg
+				pkg.ImportPathParts = append([]string{}, pkg.ImportPathParts...)
 				pkg.ImportPathParts = append(pkg.ImportPathParts, name)
+				dlog.Printf("queuing %q", pkg)
 				next = append(next, pkg)
-			}
-			if hasGoFiles {
-				pkgs.Insert(pkg)
 			}
 		}
 	}
