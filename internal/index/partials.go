@@ -1,8 +1,7 @@
 package index
 
 import (
-	"encoding/json"
-
+	"github.com/goccy/go-json"
 	"golang.org/x/exp/slices"
 
 	islices "aslevy.com/go-doc/internal/slices"

@@ -1,36 +1,36 @@
 goos: darwin
 goarch: arm64
 pkg: aslevy.com/go-doc/internal/index
-BenchmarkSearch_stdlib-10              	   15862	     73917 ns/op	   88438 B/op	     609 allocs/op
+BenchmarkSearch_stdlib-10              	   20952	     58478 ns/op	   89229 B/op	     608 allocs/op
 --- BENCH: BenchmarkSearch_stdlib-10
+    search_test.go:124: num matches:  20
+    search_test.go:124: num matches:  2
     search_test.go:124: num matches:  1
-    search_test.go:124: num matches:  216
     search_test.go:124: num matches:  1
-    search_test.go:124: num matches:  1
-BenchmarkRandomPartialSearchPath-10    	 9147633	       130.9 ns/op	      16 B/op	       1 allocs/op
+BenchmarkRandomPartialSearchPath-10    	12090004	        99.49 ns/op	      16 B/op	       1 allocs/op
 --- BENCH: BenchmarkRandomPartialSearchPath-10
-    search_test.go:167: path:  sha51
-    search_test.go:167: path:  inter/fuz
-    search_test.go:167: path:  interna
-    search_test.go:167: path:  pat
-    search_test.go:167: path:  tzda
-BenchmarkModuleSync-10                 	     349	   3308695 ns/op	  671266 B/op	    5289 allocs/op
+    search_test.go:167: path:  net/textpr
+    search_test.go:167: path:  con
+    search_test.go:167: path:  encodi/base6
+    search_test.go:167: path:  io
+    search_test.go:167: path:  intern
+BenchmarkModuleSync-10                 	     460	   2497322 ns/op	  671267 B/op	    5289 allocs/op
 --- BENCH: BenchmarkModuleSync-10
     sync_test.go:155: num packages:  72
     sync_test.go:155: num packages:  72
     sync_test.go:155: num packages:  72
-BenchmarkModuleSync_stdlib-10          	      92	  12693216 ns/op	 3063213 B/op	   19265 allocs/op
+BenchmarkModuleSync_stdlib-10          	     117	  10025448 ns/op	 3063209 B/op	   19265 allocs/op
 --- BENCH: BenchmarkModuleSync_stdlib-10
     sync_test.go:166: num packages:  232
     sync_test.go:166: num packages:  232
     sync_test.go:166: num packages:  232
-BenchmarkNewSync_stdlib-10             	      54	  23020199 ns/op	15396223 B/op	   45530 allocs/op
+BenchmarkNewSync_stdlib-10             	      66	  18304304 ns/op	15396228 B/op	   45530 allocs/op
 --- BENCH: BenchmarkNewSync_stdlib-10
     sync_test.go:180: longest import path:  6
     sync_test.go:181: num modules:  2
     sync_test.go:180: longest import path:  6
     sync_test.go:181: num modules:  2
-BenchmarkSync_unchanged_stdlib-10      	 1306027	       917.8 ns/op	     624 B/op	      13 allocs/op
+BenchmarkSync_unchanged_stdlib-10      	 1690142	       711.9 ns/op	     624 B/op	      13 allocs/op
 --- BENCH: BenchmarkSync_unchanged_stdlib-10
     sync_test.go:197: longest import path:  6
     sync_test.go:198: num modules:  2
@@ -43,11 +43,11 @@ BenchmarkSync_unchanged_stdlib-10      	 1306027	       917.8 ns/op	     624 B/o
     sync_test.go:199: changed:  false
     sync_test.go:197: longest import path:  6
 	... [output truncated]
-BenchmarkParseVendoredModules-10       	   14871	     80873 ns/op	   87824 B/op	    1382 allocs/op
+BenchmarkParseVendoredModules-10       	   19172	     62781 ns/op	   87824 B/op	    1382 allocs/op
 --- BENCH: BenchmarkParseVendoredModules-10
     vendor_test.go:182: num modules:  20
     vendor_test.go:182: num modules:  20
     vendor_test.go:182: num modules:  20
     vendor_test.go:182: num modules:  20
 PASS
-ok  	aslevy.com/go-doc/internal/index	14.318s
+ok  	aslevy.com/go-doc/internal/index	13.644s

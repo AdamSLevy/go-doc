@@ -6,6 +6,7 @@ require (
 	github.com/alecthomas/chroma/v2 v2.4.0
 	github.com/charmbracelet/glamour v0.6.1-0.20221114002222-bf21e0bca6f3
 	github.com/davecgh/go-spew v1.1.1
+	github.com/goccy/go-json v0.10.0
 	github.com/muesli/reflow v0.3.0
 	github.com/muesli/termenv v0.13.0
 	github.com/schollz/progressbar/v3 v3.13.0

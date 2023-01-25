@@ -1,6 +1,6 @@
 package index
 
-import "encoding/json"
+import "github.com/goccy/go-json"
 
 type omitter interface{ shouldOmit() bool }
 

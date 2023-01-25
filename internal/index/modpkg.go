@@ -1,13 +1,13 @@
 package index
 
 import (
-	"encoding/json"
 	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/goccy/go-json"
 	"golang.org/x/exp/slices"
 
 	"aslevy.com/go-doc/internal/godoc"

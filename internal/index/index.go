@@ -1,7 +1,6 @@
 package index
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -9,6 +8,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/goccy/go-json"
 
 	_dlog "aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/flagvar"
