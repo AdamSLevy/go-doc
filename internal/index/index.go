@@ -182,22 +182,22 @@ func (pkgIdx Packages) encode(w io.Writer) error {
 }
 
 type packagesJSON struct {
-	CodeRoots []godoc.PackageDir
-	Modules   moduleList
-	Partials  rightPartialIndex
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	BuildSum  string
+	CodeRoots     []godoc.PackageDir
+	Modules       moduleList
+	Partials      rightPartialIndex
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	BuildRevision string
 }
 
 func (pkgIdx Packages) toPackagesJSON() packagesJSON {
 	return packagesJSON{
-		CodeRoots: pkgIdx.codeRoots,
-		Modules:   pkgIdx.modules,
-		Partials:  pkgIdx.partials,
-		CreatedAt: pkgIdx.createdAt,
-		UpdatedAt: pkgIdx.updatedAt,
-		BuildSum:  getBuildSum(),
+		CodeRoots:     pkgIdx.codeRoots,
+		Modules:       pkgIdx.modules,
+		Partials:      pkgIdx.partials,
+		CreatedAt:     pkgIdx.createdAt,
+		UpdatedAt:     pkgIdx.updatedAt,
+		BuildRevision: getBuildRevision(),
 	}
 }
 func (pkgIdx *Packages) fromPackagesJSON(p packagesJSON) {
@@ -207,15 +207,21 @@ func (pkgIdx *Packages) fromPackagesJSON(p packagesJSON) {
 	pkgIdx.createdAt = p.CreatedAt
 	pkgIdx.updatedAt = p.UpdatedAt
 
-	buildSum := getBuildSum()
-	if buildSum != "" && buildSum != p.BuildSum {
+	rev := getBuildRevision()
+	if rev != "" && rev != p.BuildRevision {
 		pkgIdx.options.mode = ModeForceSync
 	}
 }
 
-func getBuildSum() string {
-	if info, ok := debug.ReadBuildInfo(); ok {
-		return info.Main.Sum
+func getBuildRevision() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			return s.Value
+		}
 	}
 	return ""
 }
