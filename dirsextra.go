@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+
 	"aslevy.com/go-doc/internal/godoc"
 )
 
@@ -19,6 +21,8 @@ func (d *PackageDirs) Next() (godoc.PackageDir, bool) {
 
 func (d *PackageDirs) Reset() { d.dirs().Reset() }
 
-func (d *PackageDirs) Filter(string, bool) bool { return false }
+var errNotImplemented = errors.New("not implemented")
+
+func (d *PackageDirs) Filter(string, bool) error { return errNotImplemented }
 
 func (dirs *Dirs) registerPackage(importPath, dir string) { dirs.scan <- Dir{importPath, dir, true} }

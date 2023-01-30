@@ -3,17 +3,12 @@ package index
 import (
 	"flag"
 	"fmt"
-	"io"
 	"os"
-	"runtime/debug"
 	"strings"
 	"time"
 
-	"github.com/goccy/go-json"
-
 	_dlog "aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/flagvar"
-	"aslevy.com/go-doc/internal/godoc"
 )
 
 // IMPROVEMENTS:
@@ -120,126 +115,4 @@ func WithNoProgressBar() Option {
 	return func(o *options) {
 		o.disableProgressBar = true
 	}
-}
-
-type Packages struct {
-	codeRoots []godoc.PackageDir
-	modules   moduleList
-	partials  rightPartialIndex
-
-	createdAt time.Time
-	updatedAt time.Time
-
-	goDocBuildSum string
-
-	options
-}
-
-func New(codeRoots []godoc.PackageDir, opts ...Option) *Packages {
-	pkgIdx := newPackages(opts...)
-	if pkgIdx == nil {
-		return nil
-	}
-	pkgIdx.sync(codeRoots)
-	return pkgIdx
-}
-func newPackages(opts ...Option) *Packages {
-	o := newOptions(opts...)
-	if o.mode == ModeOff {
-		return nil
-	}
-	return &Packages{
-		createdAt: time.Now(),
-		options:   o,
-	}
-}
-
-func LoadSync(path string, required []godoc.PackageDir, opts ...Option) (pkgIdx *Packages, err error) {
-	pkgIdx = newPackages(opts...)
-	if pkgIdx == nil {
-		return
-	}
-
-	defer func() {
-		changed := pkgIdx.sync(required)
-		if changed {
-			err = pkgIdx.Save(path)
-		}
-	}()
-
-	var f *os.File
-	f, err = os.Open(path)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-
-	err = pkgIdx.decode(f)
-	return
-}
-func (pkgIdx *Packages) decode(r io.Reader) error {
-	var p packagesJSON
-	if err := json.NewDecoder(r).Decode(&p); err != nil {
-		return err
-	}
-	pkgIdx.fromPackagesJSON(p)
-	return nil
-}
-
-func (pkgIdx *Packages) Save(path string) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	pkgIdx.updatedAt = time.Now()
-	return pkgIdx.encode(f)
-}
-func (pkgIdx Packages) encode(w io.Writer) error {
-	return json.NewEncoder(w).Encode(pkgIdx.toPackagesJSON())
-}
-
-type packagesJSON struct {
-	CodeRoots     []godoc.PackageDir
-	Modules       moduleList
-	Partials      rightPartialIndex
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	BuildRevision string
-}
-
-func (pkgIdx Packages) toPackagesJSON() packagesJSON {
-	return packagesJSON{
-		CodeRoots:     pkgIdx.codeRoots,
-		Modules:       pkgIdx.modules,
-		Partials:      pkgIdx.partials,
-		CreatedAt:     pkgIdx.createdAt,
-		UpdatedAt:     pkgIdx.updatedAt,
-		BuildRevision: getBuildRevision(),
-	}
-}
-func (pkgIdx *Packages) fromPackagesJSON(p packagesJSON) {
-	pkgIdx.codeRoots = p.CodeRoots
-	pkgIdx.modules = p.Modules
-	pkgIdx.partials = p.Partials
-	pkgIdx.createdAt = p.CreatedAt
-	pkgIdx.updatedAt = p.UpdatedAt
-
-	rev := getBuildRevision()
-	if rev != "" && rev != p.BuildRevision {
-		pkgIdx.options.mode = ModeForceSync
-	}
-}
-
-func getBuildRevision() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return ""
-	}
-	for _, s := range info.Settings {
-		if s.Key == "vcs.revision" {
-			return s.Value
-		}
-	}
-	return ""
 }

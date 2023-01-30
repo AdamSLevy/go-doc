@@ -56,6 +56,7 @@ import (
 	"strings"
 
 	"aslevy.com/go-doc/internal/completion"
+	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/flags"
 	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/index"
@@ -111,7 +112,8 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	flags.Parse(flagSet, args...)
 	godoc.NoImports = godoc.NoImports || short // don't show imports with -short
 	if pkgIdx := packageIndex(); pkgIdx != nil {
-		xdirs = index.NewDirs(pkgIdx)
+		defer pkgIdx.Close()
+		xdirs = index.NewDirsDB(pkgIdx)
 	}
 	completer := completion.NewCompleter(writer, xdirs, unexported, matchCase, flagSet.Args())
 
@@ -429,9 +431,11 @@ func findNextPackage(pkg string) (string, bool) {
 	}
 	pkg = path.Clean(pkg)
 
-	if xdirs.Filter(pkg, true) {
+	if err := xdirs.Filter(pkg, true); err == nil {
 		d, ok := xdirs.Next()
 		return d.Dir, ok
+	} else {
+		dlog.Printf("filter error: %s", err)
 	}
 
 	pkgSuffix := "/" + pkg

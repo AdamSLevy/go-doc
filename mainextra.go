@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 	"aslevy.com/go-doc/internal/index"
 )
 
-func packageIndex() *index.Packages {
+func packageIndex() *index.Index {
 	localModuleRoot := moduleRootDir(goCmd())
 	if localModuleRoot == "" {
 		return nil
@@ -22,14 +23,14 @@ func packageIndex() *index.Packages {
 		dlog.Printf("failed to create index cache dir: %v", err)
 		return nil
 	}
-	pkgIdx, err := index.LoadSync(path, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
+	pkgIdx, err := index.LoadIndex(context.Background(), path, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
 	if err != nil {
 		dlog.Printf("index.UpdateOrCreate: %v", err)
 	}
 	return pkgIdx
 }
 func indexCachePath(localModuleRoot string) string {
-	return filepath.Join(localModuleRoot, ".go-doc", "index.json")
+	return filepath.Join(localModuleRoot, ".go-doc", "packages.sqlite3")
 }
 func dirsToIndexModules(dirs ...Dir) []godoc.PackageDir {
 	mods := make([]godoc.PackageDir, len(dirs))
