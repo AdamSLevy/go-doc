@@ -7,7 +7,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type DirsDB struct {
+type Dirs struct {
 	idx *Index
 
 	searchPath string
@@ -20,14 +20,14 @@ type DirsDB struct {
 	offset  int
 }
 
-var _ godoc.Dirs = (*DirsDB)(nil)
+var _ godoc.Dirs = (*Dirs)(nil)
 
-func NewDirsDB(pkgIdx *Index) godoc.Dirs {
-	return &DirsDB{idx: pkgIdx}
+func NewDirs(pkgIdx *Index) godoc.Dirs {
+	return &Dirs{idx: pkgIdx}
 }
 
-func (d *DirsDB) Reset() { d.offset = 0 }
-func (d *DirsDB) Next() (pkg godoc.PackageDir, ok bool) {
+func (d *Dirs) Reset() { d.offset = 0 }
+func (d *Dirs) Next() (pkg godoc.PackageDir, ok bool) {
 	if d.offset < len(d.results) {
 		pkg := d.results[d.offset]
 		d.offset++
@@ -41,7 +41,7 @@ func (d *DirsDB) Next() (pkg godoc.PackageDir, ok bool) {
 	}
 	return pkg, ok
 }
-func (d *DirsDB) Filter(path string, partial bool) error {
+func (d *Dirs) Filter(path string, partial bool) error {
 	if err := d.idx.waitSync(); err != nil {
 		return err
 	}

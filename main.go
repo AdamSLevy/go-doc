@@ -113,7 +113,7 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	godoc.NoImports = godoc.NoImports || short // don't show imports with -short
 	if pkgIdx := packageIndex(); pkgIdx != nil {
 		defer pkgIdx.Close()
-		xdirs = index.NewDirsDB(pkgIdx)
+		xdirs = index.NewDirs(pkgIdx)
 	}
 	completer := completion.NewCompleter(writer, xdirs, unexported, matchCase, flagSet.Args())
 
