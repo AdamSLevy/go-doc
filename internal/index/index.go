@@ -1,118 +1,149 @@
 package index
 
 import (
-	"flag"
+	"context"
+	"database/sql"
+	"errors"
 	"fmt"
-	"os"
-	"strings"
-	"time"
 
-	_dlog "aslevy.com/go-doc/internal/dlog"
-	"aslevy.com/go-doc/internal/flagvar"
+	"golang.org/x/sync/errgroup"
+	_ "modernc.org/sqlite"
+
+	"aslevy.com/go-doc/internal/godoc"
 )
-
-// IMPROVEMENTS:
-// - lazy loading:
-//  - load/sync index only after first search
-//  - load only the partials list required for the search
-//    - This will require splitting the modules and each partials lists into
-//      separate files.
-//  - stop the search at the first result and find a way to resume the search later
 
 const (
-	SyncEnvVar            = "GODOC_INDEX_MODE"
-	ResyncEnvVar          = "GODOC_INDEX_RESYNC"
-	DefaultResyncInterval = 20 * time.Minute
-	NoProgressBar         = "GODOC_NO_PROGRESS_BAR"
+	// ApplicationID is the application ID of the database.
+	sqliteApplicationID int32 = 0x0_90_D0C_90 // GO DOC GO
 )
 
-var (
-	dlog           = _dlog.Child("index")
-	Sync           = ModeAutoSync
-	ResyncInterval = DefaultResyncInterval
-)
+type Index struct {
+	options
 
-func AddFlags(fs *flag.FlagSet) {
-	fs.Var(dlog.EnableFlag(), "debug-index", "enable debug logging for index")
-	Sync, _ = ParseMode(os.Getenv(SyncEnvVar))
-	fs.Var(flagvar.Parse(&Sync, ParseMode), "index-mode", fmt.Sprintf("cached index modes: %s", modes()))
-	fs.DurationVar(&ResyncInterval, "index-resync", parseResyncInterval(os.Getenv(ResyncEnvVar)), "resync index if older than this duration")
+	tx *sql.Tx
+	db *sql.DB
+
+	_sync
+	cancelInitSync context.CancelFunc
+	initSyncGroup  *errgroup.Group
 }
-func parseResyncInterval(s string) time.Duration {
-	d, err := time.ParseDuration(s)
+
+func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return DefaultResyncInterval
+		return nil, err
 	}
-	return d
-}
 
-type Mode = string
-
-const (
-	ModeOff       Mode = "off"
-	ModeAutoSync       = "auto"
-	ModeForceSync      = "force"
-	ModeSkipSync       = "skip"
-)
-
-func modes() string {
-	return strings.Join([]Mode{ModeOff, ModeAutoSync, ModeForceSync, ModeSkipSync}, ", ")
-}
-
-func ParseMode(s string) (Mode, error) {
-	switch s {
-	case ModeOff, ModeAutoSync, ModeForceSync, ModeSkipSync:
-		return s, nil
+	idx := Index{
+		options: newOptions(opts...),
+		db:      db,
 	}
-	return ModeAutoSync, fmt.Errorf("invalid index mode: %q", s)
-}
 
-type options struct {
-	mode               Mode
-	resyncInterval     time.Duration
-	disableProgressBar bool
-}
-
-type Option func(*options)
-
-func newOptions(opts ...Option) options {
-	o := defaultOptions()
-	WithOptions(opts...)(&o)
-	return o
-}
-func defaultOptions() options {
-	return options{
-		mode:           ModeAutoSync,
-		resyncInterval: DefaultResyncInterval,
+	if err := idx.checkSetApplicationID(ctx); err != nil {
+		return nil, err
 	}
+
+	ctx, idx.cancelInitSync = context.WithCancel(ctx)
+	idx.initSyncGroup, ctx = errgroup.WithContext(ctx)
+	idx.initSyncGroup.Go(func() error {
+		defer idx.cancelInitSync()
+		return idx.initSync(ctx, codeRoots)
+	})
+
+	return &idx, nil
 }
 
-func WithOptions(opts ...Option) Option {
-	return func(o *options) {
-		for _, opt := range opts {
-			opt(o)
+func (idx *Index) Close() error {
+	defer idx.db.Close()
+	idx.cancelInitSync()
+	return idx.waitSync()
+}
+func (idx *Index) waitSync() error { return idx.initSyncGroup.Wait() }
+
+func (idx *Index) initSync(ctx context.Context, codeRoots []godoc.PackageDir) error {
+	if err := idx.enableForeignKeys(ctx); err != nil {
+		return err
+	}
+
+	if err := idx.updateSchema(ctx); err != nil {
+		return err
+	}
+
+	if err := idx.loadSync(ctx); ignoreErrNoRows(err) != nil {
+		return err
+	}
+
+	return idx.syncCodeRoots(ctx, codeRoots)
+}
+func ignoreErrNoRows(err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	return err
+}
+
+func (idx *Index) updateSchema(ctx context.Context) error {
+	schemaVersion, err := idx.schemaVersion(ctx)
+	if err != nil {
+		return err
+	}
+
+	schema := schema()
+	if schemaVersion > len(schema) {
+		return fmt.Errorf("database schema version (%d) higher than supported (<=%d)", schemaVersion, len(schema))
+	}
+	// Apply any missing schema updates...
+	for i, stmt := range schema[schemaVersion:] {
+		_, err := idx.db.ExecContext(ctx, stmt)
+		if err != nil {
+			return fmt.Errorf("failed to apply schema version %d: %w", i+1, err)
 		}
 	}
+	return nil
 }
 
-func WithAuto() Option      { return WithMode(ModeAutoSync) }
-func WithOff() Option       { return WithMode(ModeOff) }
-func WithForceSync() Option { return WithMode(ModeForceSync) }
-func WithSkipSync() Option  { return WithMode(ModeSkipSync) }
-func WithMode(mode Mode) Option {
-	return func(o *options) {
-		o.mode = mode
+func (idx *Index) checkSetApplicationID(ctx context.Context) error {
+	const pragmaApplicationID = "application_id"
+	var appID int32
+	if err := idx.readPragma(ctx, pragmaApplicationID, &appID); err != nil {
+		return err
 	}
+	if appID == 0 {
+		if err := idx.setPragma(ctx, pragmaApplicationID, sqliteApplicationID); err != nil {
+			return err
+		}
+	} else if appID != sqliteApplicationID {
+		return fmt.Errorf("database is not for this application")
+	}
+	return nil
 }
 
-func WithResyncInterval(interval time.Duration) Option {
-	return func(o *options) {
-		o.resyncInterval = interval
+func (idx *Index) schemaVersion(ctx context.Context) (int, error) {
+	var schemaVersion int
+	if err := idx.readPragma(ctx, "schema_version", &schemaVersion); err != nil {
+		return 0, err
 	}
+	return schemaVersion, nil
 }
 
-func WithNoProgressBar() Option {
-	return func(o *options) {
-		o.disableProgressBar = true
+func (idx *Index) enableForeignKeys(ctx context.Context) error {
+	return idx.setPragma(ctx, "foreign_keys", "on")
+}
+
+func (idx *Index) readPragma(ctx context.Context, key string, val any) error {
+	query := fmt.Sprintf(`PRAGMA %s;`, key)
+	err := idx.db.QueryRowContext(ctx, query).Scan(val)
+	if err != nil {
+		return fmt.Errorf("failed to read pragma %s: %w", key, err)
 	}
+	return nil
+}
+
+func (idx *Index) setPragma(ctx context.Context, key string, val any) error {
+	query := fmt.Sprintf(`PRAGMA %s=%v;`, key, val)
+	_, err := idx.db.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to set pragma %s=%v: %w", key, val, err)
+	}
+	return nil
 }

@@ -6,13 +6,23 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
-	"errors"
 	"fmt"
 	"runtime/debug"
 	"time"
 
 	"aslevy.com/go-doc/internal/godoc"
 )
+
+type sqlDB interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+type sqlRow interface {
+	Scan(dest ...any) error
+}
 
 type _sync struct {
 	CreatedAt time.Time
@@ -26,12 +36,6 @@ func (idx *Index) loadSync(ctx context.Context) error {
 SELECT createdAt, updatedAt, buildRevision FROM sync WHERE rowid=1;
 `
 	return idx.db.QueryRowContext(ctx, _syncSelect).Scan(&idx.CreatedAt, &idx.UpdatedAt, &idx.BuildRevision)
-}
-func ignoreErrNoRows(err error) error {
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	return err
 }
 
 func (idx *Index) upsertSync(ctx context.Context) error {
@@ -125,11 +129,29 @@ UPDATE module SET (dir, class, vendor) = (?, ?, ?) WHERE rowid=?;
 	return err
 }
 func (idx *Index) pruneModules(ctx context.Context, vendor bool, keep []int64) error {
-	const query = `
-DELETE FROM module WHERE vendor=? AND rowid NOT IN (?);
-`
-	_, err := idx.tx.ExecContext(ctx, query, vendor, keep)
+	query := fmt.Sprintf(`
+DELETE FROM module WHERE vendor=? AND rowid NOT IN (%s);
+`, placeholders(len(keep)))
+	_, err := idx.tx.ExecContext(ctx, query, pruneModulesArgs(vendor, keep)...)
 	return err
+}
+func placeholders(n int) string {
+	var buf bytes.Buffer
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		buf.WriteByte('?')
+	}
+	return buf.String()
+}
+func pruneModulesArgs(vendor bool, keep []int64) []any {
+	args := make([]any, 0, len(keep)+1)
+	args = append(args, vendor)
+	for _, id := range keep {
+		args = append(args, id)
+	}
+	return args
 }
 
 type _package struct {
