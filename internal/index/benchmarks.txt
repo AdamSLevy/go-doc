@@ -1,18 +1,46 @@
 goos: darwin
 goarch: arm64
 pkg: aslevy.com/go-doc/internal/index
-BenchmarkSearch_stdlib-10              	   13052	     91220 ns/op	    1868 B/op	      56 allocs/op
---- BENCH: BenchmarkSearch_stdlib-10
-    search_test.go:138: num matches:  0
-    search_test.go:138: num matches:  0
-    search_test.go:138: num matches:  0
-    search_test.go:138: num matches:  0
-BenchmarkRandomPartialSearchPath-10    	11858991	       101.0 ns/op	      16 B/op	       1 allocs/op
+BenchmarkDirs-10                        	    9933	    108411 ns/op	    3563 B/op	      89 allocs/op
+--- BENCH: BenchmarkDirs-10
+    dirs_test.go:42: pkg:  {image/color opt/homebrew/Cellar/go/1.19.5/libexec/src/image/color} ok:  true
+    dirs_test.go:42: pkg:  {cmd/go/internal/robustio opt/homebrew/Cellar/go/1.19.5/libexec/src/cmd/go/internal/robustio} ok:  true
+    dirs_test.go:42: pkg:  {crypto/internal/boring/fipstls opt/homebrew/Cellar/go/1.19.5/libexec/src/crypto/internal/boring/fipstls} ok:  true
+BenchmarkSearch_partials_stdlib-10      	    2340	    518951 ns/op	   22495 B/op	     540 allocs/op
+--- BENCH: BenchmarkSearch_partials_stdlib-10
+    search_test.go:155: num matches:  8
+    search_test.go:155: num matches:  3
+    search_test.go:155: num matches:  1
+BenchmarkSearch_exact_stdlib-10         	   12729	     94748 ns/op	    2205 B/op	      65 allocs/op
+--- BENCH: BenchmarkSearch_exact_stdlib-10
+    search_test.go:155: num matches:  1
+    search_test.go:155: num matches:  1
+    search_test.go:155: num matches:  2
+    search_test.go:155: num matches:  1
+BenchmarkRandomPartialSearchPath-10     	11722436	       101.5 ns/op	      16 B/op	       1 allocs/op
 --- BENCH: BenchmarkRandomPartialSearchPath-10
-    search_test.go:189: path:  cmd/cove
-    search_test.go:189: path:  cmd/go/int
-    search_test.go:189: path:  reflect
-    search_test.go:189: path:  io
-    search_test.go:189: path:  rege/synta
+    search_test.go:208: path:  buil/cons
+    search_test.go:208: path:  go/inter
+    search_test.go:208: path:  ppr
+    search_test.go:208: path:  go/inte/doc
+    search_test.go:208: path:  inter/unsafeh
+BenchmarkLoadSync_stdlib-10             	      30	  36382410 ns/op	 3958506 B/op	   56491 allocs/op
+--- BENCH: BenchmarkLoadSync_stdlib-10
+    sync_test.go:36: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
+    sync_test.go:36: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
+BenchmarkLoadSync_InMemory_stdlib-10    	      37	  32585437 ns/op	 3914984 B/op	   55718 allocs/op
+--- BENCH: BenchmarkLoadSync_InMemory_stdlib-10
+    sync_test.go:55: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
+    sync_test.go:55: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
+BenchmarkLoadReSync_stdlib-10           	    4694	    251247 ns/op	   27809 B/op	     481 allocs/op
+--- BENCH: BenchmarkLoadReSync_stdlib-10
+    sync_test.go:80: index sync {CreatedAt:2023-02-02 09:54:27 +0000 UTC UpdatedAt:2023-02-02 09:54:27 +0000 UTC BuildRevision:}
+    sync_test.go:80: index sync {CreatedAt:2023-02-02 09:54:27 +0000 UTC UpdatedAt:2023-02-02 09:54:27 +0000 UTC BuildRevision:}
+    sync_test.go:80: index sync {CreatedAt:2023-02-02 09:54:28 +0000 UTC UpdatedAt:2023-02-02 09:54:29 +0000 UTC BuildRevision:}
+BenchmarkLoadNoSync_stdlib-10           	    6189	    186890 ns/op	   22653 B/op	     325 allocs/op
+--- BENCH: BenchmarkLoadNoSync_stdlib-10
+    sync_test.go:105: index sync {CreatedAt:2023-02-02 09:54:29 +0000 UTC UpdatedAt:2023-02-02 09:54:29 +0000 UTC BuildRevision:}
+    sync_test.go:105: index sync {CreatedAt:2023-02-02 09:54:29 +0000 UTC UpdatedAt:2023-02-02 09:54:29 +0000 UTC BuildRevision:}
+    sync_test.go:105: index sync {CreatedAt:2023-02-02 09:54:29 +0000 UTC UpdatedAt:2023-02-02 09:54:29 +0000 UTC BuildRevision:}
 PASS
-ok  	aslevy.com/go-doc/internal/index	4.330s
+ok  	aslevy.com/go-doc/internal/index	11.792s

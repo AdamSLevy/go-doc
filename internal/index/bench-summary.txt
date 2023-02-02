@@ -1,2 +1,8 @@
-BenchmarkRandomPartialSearchPath-10    	11858991	       101.0 ns/op	      16 B/op	       1 allocs/op
-BenchmarkSearch_stdlib-10              	   13052	     91220 ns/op	    1868 B/op	      56 allocs/op
+BenchmarkDirs-10                        	    9933	    108411 ns/op	    3563 B/op	      89 allocs/op
+BenchmarkLoadNoSync_stdlib-10           	    6189	    186890 ns/op	   22653 B/op	     325 allocs/op
+BenchmarkLoadReSync_stdlib-10           	    4694	    251247 ns/op	   27809 B/op	     481 allocs/op
+BenchmarkLoadSync_InMemory_stdlib-10    	      37	  32585437 ns/op	 3914984 B/op	   55718 allocs/op
+BenchmarkLoadSync_stdlib-10             	      30	  36382410 ns/op	 3958506 B/op	   56491 allocs/op
+BenchmarkRandomPartialSearchPath-10     	11722436	       101.5 ns/op	      16 B/op	       1 allocs/op
+BenchmarkSearch_exact_stdlib-10         	   12729	     94748 ns/op	    2205 B/op	      65 allocs/op
+BenchmarkSearch_partials_stdlib-10      	    2340	    518951 ns/op	   22495 B/op	     540 allocs/op
