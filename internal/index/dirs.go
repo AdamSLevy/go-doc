@@ -10,10 +10,10 @@ import (
 type Dirs struct {
 	idx *Index
 
-	searchPath string
-	path       bool
-	g          *errgroup.Group
-	cancel     context.CancelFunc
+	searchPath    string
+	searchPartial bool
+	g             *errgroup.Group
+	cancel        context.CancelFunc
 
 	next    chan godoc.PackageDir
 	results []godoc.PackageDir
@@ -42,44 +42,47 @@ func (d *Dirs) Next() (pkg godoc.PackageDir, ok bool) {
 	return pkg, ok
 }
 func (d *Dirs) Filter(path string, partial bool) error {
-	if d.searchPath == path && d.path == partial {
+	if d.searchPath == path && d.searchPartial == partial {
 		return nil
 	}
+
 	if err := d.idx.waitSync(); err != nil {
 		return err
 	}
 
 	d.Reset()
+	if d.cancel != nil {
+		d.cancel()
+		d.g.Wait()
+	}
+	d.results = d.results[:0]
 
 	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	d.cancel = cancel
+
 	rows, err := d.idx.searchRows(ctx, path, partial)
 	if err != nil {
 		return err
 	}
+
 	d.searchPath = path
-	d.path = partial
+	d.searchPartial = partial
 	d.next = make(chan godoc.PackageDir)
 
-	ctx, cancel := context.WithCancel(ctx)
-	d.cancel = cancel
 	d.g, ctx = errgroup.WithContext(ctx)
 	d.g.Go(func() error {
 		defer cancel()
-		defer rows.Close()
 		defer close(d.next)
-		for rows.Next() && ctx.Err() == nil {
-			pkg, err := scanPackageDir(rows)
-			if err != nil {
-				return err
-			}
+		return scanPackageDirs(rows, func(pkg godoc.PackageDir) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case d.next <- pkg:
 			}
-		}
-
-		return rows.Err()
+			return nil
+		})
 	})
+
 	return nil
 }

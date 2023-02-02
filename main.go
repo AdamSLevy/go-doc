@@ -431,7 +431,8 @@ func findNextPackage(pkg string) (string, bool) {
 	}
 	pkg = path.Clean(pkg)
 
-	if err := xdirs.Filter(pkg, true); err == nil {
+	const partials = false
+	if err := xdirs.Filter(pkg, partials); err == nil {
 		d, ok := xdirs.Next()
 		return d.Dir, ok
 	} else {

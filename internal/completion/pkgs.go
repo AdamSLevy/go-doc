@@ -30,9 +30,11 @@ func (c Completer) completePackageImportPaths(partial string) (matched bool) {
 	dlog.Printf("partials: %v", partials)
 	shortPaths := make(ShortImportPaths)
 
-	c.dirs.Filter(partial, false)
-	// list all possible packages
-	c.dirs.Reset()
+	const partialMatches = true
+	if err := c.dirs.Filter(partial, partialMatches); err != nil {
+		c.dirs.Reset()
+	}
+
 	for {
 		dir, ok := c.dirs.Next()
 		if !ok {

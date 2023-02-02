@@ -37,5 +37,5 @@ type Dirs interface {
 	// idempotent and will not affect the results of Next. If the path or
 	// exact values differ from the previous call, the results of Next may
 	// change, and Reset is called.
-	Filter(path string, exact bool) error
+	Filter(path string, partial bool) error
 }

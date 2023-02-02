@@ -19,7 +19,6 @@ func (idx *Index) Search(ctx context.Context, path string, partial bool) ([]godo
 	if rows == nil {
 		return nil, nil
 	}
-	defer rows.Close()
 
 	var pkgs []godoc.PackageDir
 	return pkgs, scanPackageDirs(rows, func(pkg godoc.PackageDir) error {
@@ -28,6 +27,7 @@ func (idx *Index) Search(ctx context.Context, path string, partial bool) ([]godo
 	})
 }
 func scanPackageDirs(rows *sql.Rows, handler func(godoc.PackageDir) error) error {
+	defer rows.Close()
 	for rows.Next() {
 		pkg, err := scanPackageDir(rows)
 		if err != nil {
