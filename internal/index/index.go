@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 
 	"golang.org/x/sync/errgroup"
 	_ "modernc.org/sqlite"
@@ -56,13 +55,9 @@ func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts
 }
 
 func (idx *Index) Close() error {
-	defer func() {
-		if err := idx.db.Close(); err != nil {
-			log.Println("error closing index database:", err)
-		}
-	}()
 	idx.cancel()
-	return idx.waitSync()
+	idx.waitSync()
+	return idx.db.Close()
 }
 func (idx *Index) waitSync() error { return idx.g.Wait() }
 

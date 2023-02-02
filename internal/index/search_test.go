@@ -65,12 +65,16 @@ func importPaths(pkgs []godoc.PackageDir) []string {
 
 var GOROOT = build.Default.GOROOT
 
+func stdlibCodeRoots() []godoc.PackageDir {
+	return []godoc.PackageDir{
+		godoc.NewPackageDir("", filepath.Join(GOROOT, "src")),
+		godoc.NewPackageDir("cmd", filepath.Join(GOROOT, "src", "cmd")),
+	}
+}
+
 var indexTests = []indexTest{{
 	name: "stdlib",
-	mods: []godoc.PackageDir{
-		{"", filepath.Join(GOROOT, "src")},
-		{"cmd", filepath.Join(GOROOT, "src", "cmd")},
-	},
+	mods: stdlibCodeRoots(),
 	searchTests: []searchTest{{
 		paths:   []string{"json", "jso"},
 		partial: true,
@@ -115,41 +119,55 @@ func TestSearch(t *testing.T) {
 	}
 }
 
-func BenchmarkSearch_stdlib(b *testing.B) {
-	var pkgIdx *Index
+func BenchmarkSearch_partials_stdlib(b *testing.B) {
+	b.Helper()
+	const partial = true
+	benchmarkSearch_stdlib(b, partial)
+}
+func BenchmarkSearch_exact_stdlib(b *testing.B) {
+	b.Helper()
+	const partial = false
+	benchmarkSearch_stdlib(b, partial)
+}
+
+func benchmarkSearch_stdlib(b *testing.B, partial bool) {
+	require := require.New(b)
+
+	ctx := context.Background()
+	dbPath := dbMem
+	codeRoots := stdlibCodeRoots()
+	opts := WithOptions(WithNoProgressBar())
+
 	var matches []godoc.PackageDir
-	codeRoots := []godoc.PackageDir{
-		{"", filepath.Join(build.Default.GOROOT, "src")},
-		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
-	}
 	var randomPartialSearchPath func() string
 	var err error
-	ctx := context.Background()
-	dbPath := ":memory:"
-	exact := false
+
+	var pkgIdx *Index
 	benchmark.Run(b, func() {
-		pkgIdx, err = Load(ctx, dbPath, codeRoots, WithNoProgressBar())
-		require.NoError(b, err)
-		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx)
+		pkgIdx, err = Load(ctx, dbPath, codeRoots, opts)
+		require.NoError(err)
+		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx, partial)
 	}, func() {
 		path := randomPartialSearchPath()
-		matches, err = pkgIdx.Search(ctx, path, exact)
-		require.NoError(b, err)
+		matches, err = pkgIdx.Search(ctx, path, partial)
+		require.NoError(err)
 	})
 	b.Log("num matches: ", len(matches))
 }
 
 func TestRandomPartialSearchPath(t *testing.T) {
-	ctx := context.Background()
-	dbPath := ":memory:"
-	codeRoots := []godoc.PackageDir{
-		{"", filepath.Join(build.Default.GOROOT, "src")},
-		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
-	}
-	pkgIdx, err := Load(ctx, dbPath, codeRoots, WithNoProgressBar())
-	require.NoError(t, err)
+	require := require.New(t)
 
-	randomPartialSearchPath := newRandomPartialSearchPathFunc(pkgIdx)
+	ctx := context.Background()
+	dbPath := dbMem
+	codeRoots := stdlibCodeRoots()
+	opts := WithOptions(WithNoProgressBar())
+
+	pkgIdx, err := Load(ctx, dbPath, codeRoots, opts)
+	require.NoError(err)
+
+	const partial = true
+	randomPartialSearchPath := newRandomPartialSearchPathFunc(pkgIdx, partial)
 
 	paths := make(map[string]struct{})
 	var duplicates int
@@ -166,24 +184,24 @@ func TestRandomPartialSearchPath(t *testing.T) {
 	}
 
 	t.Log("duplicates:", duplicates)
-	require.Less(t, duplicates, total/2, "too many duplicates")
+	require.Less(duplicates, total/2, "too many duplicates")
 }
 
 func BenchmarkRandomPartialSearchPath(b *testing.B) {
 	var path string
 	var pkgIdx *Index
-	codeRoots := []godoc.PackageDir{
-		{"", filepath.Join(build.Default.GOROOT, "src")},
-		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
-	}
-	ctx := context.Background()
-	dbPath := ":memory:"
 	var err error
 	var randomPartialSearchPath func() string
 	benchmark.Run(b, func() {
-		pkgIdx, err = Load(ctx, dbPath, codeRoots, WithNoProgressBar())
+		ctx := context.Background()
+		dbPath := dbMem
+		codeRoots := stdlibCodeRoots()
+		opts := WithOptions(WithNoProgressBar())
+
+		pkgIdx, err = Load(ctx, dbPath, codeRoots, opts)
 		require.NoError(b, err)
-		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx)
+		const partial = true
+		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx, partial)
 	}, func() {
 		path = randomPartialSearchPath()
 	})
@@ -191,26 +209,30 @@ func BenchmarkRandomPartialSearchPath(b *testing.B) {
 }
 
 func init() { rand.Seed(time.Now().UnixNano()) }
-func newRandomPartialSearchPathFunc(pkgIdx *Index) func() string {
-	pkgs, err := pkgIdx.Search(context.Background(), "", true)
+func newRandomPartialSearchPathFunc(pkgIdx *Index, partial bool) func() string {
+	allPkgs, err := pkgIdx.Search(context.Background(), "", true)
 	if err != nil {
 		panic(err)
 	}
-	pkgParts := make([][]string, len(pkgs))
-	for i, pkg := range pkgs {
-		pkgParts[i] = strings.Split(pkg.ImportPath, "/")
+	allPkgParts := make([][]string, len(allPkgs))
+	for i, pkg := range allPkgs {
+		allPkgParts[i] = strings.Split(pkg.ImportPath, "/")
 	}
 	return func() string {
-		pkg := pkgParts[rand.Intn(len(pkgs))]
+		pkgParts := allPkgParts[rand.Intn(len(allPkgs))]
 
 		// random selection of one or more parts
-		first := rand.Intn(len(pkg))
-		last := rand.Intn(len(pkg))
+		first := rand.Intn(len(pkgParts))
+		if !partial {
+			return strings.Join(pkgParts[first:], "/")
+		}
+
+		last := rand.Intn(len(pkgParts))
 		if first > last {
 			first, last = last, first
 		}
 
-		parts := pkg[first : last+1]
+		parts := pkgParts[first : last+1]
 
 		// random truncation of each part
 		var path string
