@@ -16,6 +16,12 @@ import (
 var dlogSync = dlog.Child("sync")
 
 func (idx *Index) needsSync(ctx context.Context) (bool, error) {
+	switch idx.options.mode {
+	case ModeOff, ModeSkipSync:
+		return false, nil
+	case ModeForceSync:
+		return true, nil
+	}
 	if err := idx.loadSync(ctx); ignoreErrNoRows(err) != nil {
 		return false, err
 	}

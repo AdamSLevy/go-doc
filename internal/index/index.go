@@ -29,6 +29,11 @@ type Index struct {
 }
 
 func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
+	o := newOptions(opts...)
+	if o.mode == ModeOff {
+		return nil, nil
+	}
+
 	dlog.Printf("loading %q", dbPath)
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -36,7 +41,7 @@ func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts
 	}
 
 	idx := Index{
-		options: newOptions(opts...),
+		options: o,
 		db:      db,
 	}
 
