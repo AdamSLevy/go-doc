@@ -42,17 +42,17 @@ func (d *Dirs) Next() (pkg godoc.PackageDir, ok bool) {
 	return pkg, ok
 }
 func (d *Dirs) Filter(path string, partial bool) error {
-	if err := d.idx.waitSync(); err != nil {
-		return err
-	}
 	if d.searchPath == path && d.path == partial {
 		return nil
+	}
+	if err := d.idx.waitSync(); err != nil {
+		return err
 	}
 
 	d.Reset()
 
 	ctx := context.Background()
-	rows, err := d.idx.search(ctx, path, partial)
+	rows, err := d.idx.searchRows(ctx, path, partial)
 	if err != nil {
 		return err
 	}

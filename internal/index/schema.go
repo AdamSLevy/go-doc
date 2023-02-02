@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"database/sql"
 	_ "embed"
 	"fmt"
 	"runtime/debug"
@@ -13,18 +12,11 @@ import (
 	"aslevy.com/go-doc/internal/godoc"
 )
 
-type sqlDB interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 type sqlRow interface {
 	Scan(dest ...any) error
 }
 
-type _sync struct {
+type sync struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
@@ -49,21 +41,28 @@ INSERT INTO sync(rowid, buildRevision) VALUES (1, ?)
 `
 	_, err := idx.tx.ExecContext(ctx, _syncUpsert, getBuildRevision())
 	if err != nil {
-		return fmt.Errorf("failed to insert sync: %w", err)
+		return fmt.Errorf("failed to upsert sync: %w", err)
 	}
 	return nil
 }
+
+var buildRevision string
+
 func getBuildRevision() string {
+	if buildRevision != "" {
+		return buildRevision
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return ""
 	}
 	for _, s := range info.Settings {
 		if s.Key == "vcs.revision" {
-			return s.Value
+			buildRevision = s.Value
+			break
 		}
 	}
-	return ""
+	return buildRevision
 }
 
 type class = int
@@ -180,11 +179,20 @@ INSERT INTO package(moduleId, relativePath) VALUES (?, ?);
 	return res.LastInsertId()
 }
 func (idx *Index) prunePackages(ctx context.Context, modID int64, keep []int64) error {
-	const query = `
-DELETE FROM package WHERE moduleId=? AND rowid NOT IN (?);
-`
-	_, err := idx.tx.ExecContext(ctx, query, keep)
+	dlog.Printf("pruning unused packages for module %d", modID)
+	query := fmt.Sprintf(`
+DELETE FROM package WHERE moduleId=? AND rowid NOT IN (%s);
+`, placeholders(len(keep)))
+	_, err := idx.tx.ExecContext(ctx, query, prunePackagesArgs(modID, keep)...)
 	return err
+}
+func prunePackagesArgs(modID int64, keep []int64) []any {
+	args := make([]any, 0, len(keep)+1)
+	args = append(args, modID)
+	for _, id := range keep {
+		args = append(args, id)
+	}
+	return args
 }
 
 type _partial struct {

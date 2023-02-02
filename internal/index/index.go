@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 
 	"golang.org/x/sync/errgroup"
 	_ "modernc.org/sqlite"
@@ -20,18 +21,19 @@ const (
 type Index struct {
 	options
 
-	tx *sql.Tx
 	db *sql.DB
+	tx *sql.Tx
 
-	_sync
-	cancelInitSync context.CancelFunc
-	initSyncGroup  *errgroup.Group
+	sync
+	cancel context.CancelFunc
+	g      *errgroup.Group
 }
 
 func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
+	dlog.Printf("loading %q", dbPath)
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open index database: %w", err)
 	}
 
 	idx := Index{
@@ -43,10 +45,10 @@ func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts
 		return nil, err
 	}
 
-	ctx, idx.cancelInitSync = context.WithCancel(ctx)
-	idx.initSyncGroup, ctx = errgroup.WithContext(ctx)
-	idx.initSyncGroup.Go(func() error {
-		defer idx.cancelInitSync()
+	ctx, idx.cancel = context.WithCancel(ctx)
+	idx.g, ctx = errgroup.WithContext(ctx)
+	idx.g.Go(func() error {
+		defer idx.cancel()
 		return idx.initSync(ctx, codeRoots)
 	})
 
@@ -54,11 +56,15 @@ func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts
 }
 
 func (idx *Index) Close() error {
-	defer idx.db.Close()
-	idx.cancelInitSync()
+	defer func() {
+		if err := idx.db.Close(); err != nil {
+			log.Println("error closing index database:", err)
+		}
+	}()
+	idx.cancel()
 	return idx.waitSync()
 }
-func (idx *Index) waitSync() error { return idx.initSyncGroup.Wait() }
+func (idx *Index) waitSync() error { return idx.g.Wait() }
 
 func (idx *Index) initSync(ctx context.Context, codeRoots []godoc.PackageDir) error {
 	if err := idx.enableForeignKeys(ctx); err != nil {
@@ -66,10 +72,6 @@ func (idx *Index) initSync(ctx context.Context, codeRoots []godoc.PackageDir) er
 	}
 
 	if err := idx.updateSchema(ctx); err != nil {
-		return err
-	}
-
-	if err := idx.loadSync(ctx); ignoreErrNoRows(err) != nil {
 		return err
 	}
 
@@ -92,8 +94,12 @@ func (idx *Index) updateSchema(ctx context.Context) error {
 	if schemaVersion > len(schema) {
 		return fmt.Errorf("database schema version (%d) higher than supported (<=%d)", schemaVersion, len(schema))
 	}
-	// Apply any missing schema updates...
-	for i, stmt := range schema[schemaVersion:] {
+	dlog.Printf("schema version: %d of %d", schemaVersion, len(schema))
+	if schemaVersion == len(schema) {
+		return nil
+	}
+	// Apply all schema updates.
+	for i, stmt := range schema {
 		_, err := idx.db.ExecContext(ctx, stmt)
 		if err != nil {
 			return fmt.Errorf("failed to apply schema version %d: %w", i+1, err)

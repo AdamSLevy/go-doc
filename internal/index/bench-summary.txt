@@ -1,7 +1,2 @@
-BenchmarkModuleSync-10                 	     460	   2497322 ns/op	  671267 B/op	    5289 allocs/op
-BenchmarkModuleSync_stdlib-10          	     117	  10025448 ns/op	 3063209 B/op	   19265 allocs/op
-BenchmarkNewSync_stdlib-10             	      66	  18304304 ns/op	15396228 B/op	   45530 allocs/op
-BenchmarkParseVendoredModules-10       	   19172	     62781 ns/op	   87824 B/op	    1382 allocs/op
-BenchmarkRandomPartialSearchPath-10    	12090004	        99.49 ns/op	      16 B/op	       1 allocs/op
-BenchmarkSearch_stdlib-10              	   20952	     58478 ns/op	   89229 B/op	     608 allocs/op
-BenchmarkSync_unchanged_stdlib-10      	 1690142	       711.9 ns/op	     624 B/op	      13 allocs/op
+BenchmarkRandomPartialSearchPath-10    	11858991	       101.0 ns/op	      16 B/op	       1 allocs/op
+BenchmarkSearch_stdlib-10              	   13052	     91220 ns/op	    1868 B/op	      56 allocs/op

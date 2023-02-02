@@ -24,7 +24,11 @@ var (
 )
 
 func AddFlags(fs *flag.FlagSet) {
-	fs.Var(dlog.EnableFlag(), "debug-index", "enable debug logging for index")
+	debugDesc := "enable debug logging for index"
+	fs.Var(dlog.EnableFlag(), "debug-index", debugDesc)
+	fs.Var(dlogSearch.EnableFlag(), "debug-index-search", debugDesc+" search")
+	fs.Var(dlogSync.EnableFlag(), "debug-index-sync", debugDesc+" sync")
+
 	Sync, _ = ParseMode(os.Getenv(SyncEnvVar))
 	fs.Var(flagvar.Parse(&Sync, ParseMode), "index-mode", fmt.Sprintf("cached index modes: %s", modes()))
 	fs.DurationVar(&ResyncInterval, "index-resync", parseResyncInterval(os.Getenv(ResyncEnvVar)), "resync index if older than this duration")

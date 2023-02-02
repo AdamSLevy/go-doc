@@ -1,10 +1,8 @@
-package index
+package benchmark
 
-import (
-	"testing"
-)
+import "testing"
 
-func runBenchmark(b *testing.B, setup, op func()) {
+func Run(b *testing.B, setup, op func()) {
 	b.StopTimer()
 	b.Helper()
 	if setup != nil {

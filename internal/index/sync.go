@@ -8,30 +8,53 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"aslevy.com/go-doc/internal/godoc"
 )
 
+var dlogSync = dlog.Child("sync")
+
+func (idx *Index) needsSync(ctx context.Context) (bool, error) {
+	if err := idx.loadSync(ctx); ignoreErrNoRows(err) != nil {
+		return false, err
+	}
+	dlogSync.Printf("created at: %v", idx.sync.CreatedAt.Local())
+	dlogSync.Printf("updated at: %v", idx.sync.UpdatedAt.Local())
+	return time.Since(idx.sync.UpdatedAt) > idx.options.resyncInterval, nil
+}
+
 func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDir) (retErr error) {
+	needsSync, err := idx.needsSync(ctx)
+	if err != nil || !needsSync {
+		return err
+	}
+
+	dlogSync.Println("syncing code roots...")
 	commitIfNilErr, err := idx.beginTx(ctx)
 	if err != nil {
 		return err
 	}
 	defer commitIfNilErr(&retErr)
 
+	pb := newProgressBar(idx.options, len(codeRoots)+1, "syncing code roots")
+	defer pb.Finish()
+
 	var keep []int64
 	for _, codeRoot := range codeRoots {
-		modID, err := idx.syncCodeRoot(ctx, codeRoot)
+		modIDs, err := idx.syncCodeRoot(ctx, codeRoot)
 		if err != nil {
 			return err
 		}
-		keep = append(keep, modID)
+		keep = append(keep, modIDs...)
+		pb.Add(1)
 	}
 
 	const vendor = false
 	if err := idx.pruneModules(ctx, vendor, keep); err != nil {
 		return err
 	}
+	pb.Add(1)
 
 	return idx.upsertSync(ctx)
 }
@@ -51,8 +74,8 @@ func (idx *Index) beginTx(ctx context.Context) (commitIfNilErr func(*error), _ e
 	}, nil
 }
 
-func (idx *Index) syncCodeRoot(ctx context.Context, root godoc.PackageDir) (modID int64, _ error) {
-	class, vendor := parseClassVendor(root.ImportPath, root.Dir)
+func (idx *Index) syncCodeRoot(ctx context.Context, root godoc.PackageDir) (modIDs []int64, _ error) {
+	class, vendor := parseClassVendor(root)
 	if vendor {
 		// ImportPath is empty for vendor directories, so we use the
 		// Dir instead so as not to conflict with the stdlib, which
@@ -61,32 +84,20 @@ func (idx *Index) syncCodeRoot(ctx context.Context, root godoc.PackageDir) (modI
 		// The root vendor module is a place holder, so its import path
 		// will never be used to form a package path.
 		root.ImportPath = root.Dir
+		return idx.syncVendoredModules(ctx, root)
 	}
-
-	modID, needsSync, err := idx.upsertModule(ctx, root, class, vendor)
-	if err != nil {
-		return -1, err
-	}
-
-	if !needsSync {
-		return modID, nil
-	}
-
-	if vendor {
-		return modID, idx.syncVendoredModules(ctx, root)
-	}
-
-	return modID, idx.syncModulePackages(ctx, modID, root)
+	return idx.syncModule(ctx, root, class)
 }
-func parseClassVendor(importPath, dir string) (class, bool) {
-	if isVendor(dir) {
+
+func parseClassVendor(root godoc.PackageDir) (class, bool) {
+	if isVendor(root.Dir) {
 		return classRequired, true
 	}
-	switch importPath {
+	switch root.ImportPath {
 	case "", "cmd":
 		return classStdlib, false
 	}
-	if _, hasVersion := parseVersion(dir); hasVersion {
+	if _, hasVersion := parseVersion(root.Dir); hasVersion {
 		return classRequired, false
 	}
 	return classLocal, false
@@ -96,6 +107,22 @@ func parseVersion(dir string) (string, bool) {
 	return version, found
 }
 func isVendor(dir string) bool { return filepath.Base(dir) == "vendor" }
+
+func (idx *Index) syncModule(ctx context.Context, root godoc.PackageDir, class int) (modIDs []int64, _ error) {
+	const vendor = false
+	modID, needsSync, err := idx.upsertModule(ctx, root, class, vendor)
+	if err != nil {
+		return nil, err
+	}
+	modIDs = append(modIDs, modID)
+
+	if !needsSync {
+		dlogSync.Printf("code root %q is already synced", root.ImportPath)
+		return modIDs, nil
+	}
+
+	return modIDs, idx.syncModulePackages(ctx, modID, root)
+}
 
 func (idx *Index) upsertModule(ctx context.Context, root godoc.PackageDir, class class, vendor bool) (modID int64, needsSync bool, _ error) {
 	mod, err := idx.loadModule(ctx, root.ImportPath)
@@ -123,6 +150,7 @@ func (idx *Index) upsertModule(ctx context.Context, root godoc.PackageDir, class
 }
 
 func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godoc.PackageDir) error {
+	dlogSync.Printf("syncing module packages for %q in %q", root.ImportPath, root.Dir)
 	root.Dir = filepath.Clean(root.Dir) // because filepath.Join will do it anyway
 
 	// this is the queue of directories to examine in this pass.
@@ -132,10 +160,10 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 
 	var keep []int64
 	for len(next) > 0 {
-		dlog.Printf("descending")
+		dlogSync.Printf("descending")
 		this, next = next, this[0:0]
 		for _, pkg := range this {
-			dlog.Printf("walking %q", pkg)
+			dlogSync.Printf("walking %q", pkg)
 			fd, err := os.Open(pkg.Dir)
 			if err != nil {
 				log.Print(err)
@@ -155,7 +183,6 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 				// source files, but ignore them otherwise.
 				if !entry.IsDir() {
 					if !hasGoFiles && strings.HasSuffix(name, ".go") {
-						dlog.Printf("%q has go files", pkg)
 						hasGoFiles = true
 						pkgID, err := idx.syncPackage(ctx, modID, root, pkg)
 						if err != nil {
@@ -171,21 +198,19 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 				if name[0] == '.' || name[0] == '_' || name == "testdata" {
 					continue
 				}
-				// When in a module, ignore vendor directories and stop at module boundaries.
-				if vendor := false; vendor {
-					if name == "vendor" {
-						continue
-					}
-					if fi, err := os.Stat(filepath.Join(pkg.Dir, name, "go.mod")); err == nil && !fi.IsDir() {
-						continue
-					}
+				// Ignore vendor directories and stop at module boundaries.
+				if name == "vendor" {
+					continue
+				}
+				if fi, err := os.Stat(filepath.Join(pkg.Dir, name, "go.mod")); err == nil && !fi.IsDir() {
+					continue
 				}
 				// Remember this (fully qualified) directory for the next pass.
 				subPkg := godoc.NewPackageDir(
 					path.Join(pkg.ImportPath, name),
 					filepath.Join(pkg.Dir, name),
 				)
-				dlog.Printf("queuing %q", subPkg.ImportPath)
+				dlogSync.Printf("queuing %q", subPkg.ImportPath)
 				next = append(next, subPkg)
 			}
 		}
@@ -195,6 +220,7 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 }
 
 func (idx *Index) syncPackage(ctx context.Context, modID int64, root, pkg godoc.PackageDir) (int64, error) {
+	dlogSync.Printf("syncing package %q in %q", pkg.ImportPath, pkg.Dir)
 	relativePath := strings.TrimPrefix(pkg.ImportPath[len(root.ImportPath):], "/")
 	pkgID, err := idx.getPackageID(ctx, modID, relativePath)
 	if ignoreErrNoRows(err) != nil {
@@ -213,6 +239,7 @@ func (idx *Index) syncPackage(ctx context.Context, modID int64, root, pkg godoc.
 }
 
 func (idx *Index) syncPartials(ctx context.Context, pkgID int64, importPath string) error {
+	dlogSync.Printf("syncing partials for package %q", importPath)
 	lastSlash := len(importPath)
 	for lastSlash > 0 {
 		lastSlash = strings.LastIndex(importPath[:lastSlash], "/")

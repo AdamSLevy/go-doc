@@ -1,6 +1,8 @@
 package index
 
 import (
+	"context"
+	"flag"
 	"go/build"
 	"math/rand"
 	"path/filepath"
@@ -8,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"aslevy.com/go-doc/internal/benchmark"
 	"aslevy.com/go-doc/internal/godoc"
 	"github.com/stretchr/testify/require"
 )
 
-// func init() { dlog.Enable() }
+func init() { AddFlags(flag.CommandLine) }
 
 type indexTest struct {
 	name        string
@@ -20,25 +23,33 @@ type indexTest struct {
 	searchTests []searchTest
 }
 type searchTest struct {
-	name    string
 	paths   []string
-	exact   bool
+	partial bool
 	results []string
 }
 
 func (test indexTest) run(t *testing.T) {
 	t.Helper()
-	pkgs := New(test.mods, WithNoProgressBar())
+	ctx := context.Background()
+	const dbPath = ":memory:"
+	pkgs, err := Load(ctx, dbPath, test.mods, WithNoProgressBar())
+	require.NoError(t, err)
 	for _, searchTest := range test.searchTests {
-		t.Run(searchTest.name, func(t *testing.T) { searchTest.run(t, pkgs) })
+		searchTest.run(t, pkgs)
 	}
 }
 
-func (test searchTest) run(t *testing.T, pkgs *Packages) {
+func (test searchTest) run(t *testing.T, pkgs *Index) {
 	t.Helper()
+	ctx := context.Background()
 	for _, path := range test.paths {
-		t.Run("path/"+path, func(t *testing.T) {
-			results := pkgs.Search(path, test.exact)
+		name := "exact:"
+		if test.partial {
+			name = "partial:"
+		}
+		t.Run(name+path, func(t *testing.T) {
+			results, err := pkgs.Search(ctx, path, test.partial)
+			require.NoError(t, err)
 			require.Equal(t, test.results, importPaths(results))
 		})
 	}
@@ -61,75 +72,82 @@ var indexTests = []indexTest{{
 		{"cmd", filepath.Join(GOROOT, "src", "cmd")},
 	},
 	searchTests: []searchTest{{
-		name:  "json",
-		paths: []string{"json", "jso"},
+		paths:   []string{"json", "jso"},
+		partial: true,
 		results: []string{
 			"encoding/json",
 			"net/rpc/jsonrpc",
 		},
 	}, {
-		name:    "encoding/json",
 		paths:   []string{"encoding/json", "encoding/jso", "e/j"},
+		partial: true,
 		results: []string{"encoding/json"},
 	}, {
-		name:    "http",
 		paths:   []string{"http"},
-		results: []string{"net/http", "net/http/cgi", "net/http/cookiejar", "net/http/fcgi", "net/http/httptest", "net/http/httptrace", "net/http/httputil", "net/http/internal", "net/http/pprof", "net/http/internal/ascii", "net/http/internal/testcert"},
+		partial: true,
+		results: []string{"net/http", "net/http/httptest", "net/http/httptrace", "net/http/httputil", "net/http/cgi", "net/http/cookiejar", "net/http/fcgi", "net/http/internal", "net/http/pprof", "net/http/internal/ascii", "net/http/internal/testcert"},
 	}, {
-		name:    "http",
 		paths:   []string{"http"},
-		exact:   true,
+		partial: false,
 		results: []string{"net/http"},
 	}, {
-		name:    "ht",
 		paths:   []string{"ht"},
-		results: []string{"html", "html/template", "net/http", "net/http/cgi", "net/http/cookiejar", "net/http/fcgi", "net/http/httptest", "net/http/httptrace", "net/http/httputil", "net/http/internal", "net/http/pprof", "net/http/internal/ascii", "net/http/internal/testcert"},
+		partial: true,
+		results: []string{"html", "net/http", "net/http/httptest", "net/http/httptrace", "net/http/httputil", "html/template", "net/http/cgi", "net/http/cookiejar", "net/http/fcgi", "net/http/internal", "net/http/pprof", "net/http/internal/ascii", "net/http/internal/testcert"},
 	}, {
-		name:    "a",
 		paths:   []string{"a"},
-		results: []string{"archive/tar", "archive/zip", "crypto/aes", "encoding/ascii85", "encoding/asn1", "go/ast", "hash/adler32", "internal/abi", "runtime/asan", "sync/atomic", "runtime/internal/atomic", "net/http/internal/ascii", "cmd/addr2line", "cmd/api", "cmd/asm", "cmd/internal/archive", "cmd/asm/internal/arch", "cmd/asm/internal/asm", "cmd/asm/internal/flags", "cmd/asm/internal/lex", "cmd/compile/internal/abi", "cmd/compile/internal/abt", "cmd/compile/internal/amd64", "cmd/compile/internal/arm", "cmd/compile/internal/arm64", "cmd/go/internal/auth", "cmd/internal/obj/arm", "cmd/internal/obj/arm64", "cmd/link/internal/amd64", "cmd/link/internal/arm", "cmd/link/internal/arm64"},
+		partial: true,
+		results: []string{"crypto/aes", "encoding/ascii85", "encoding/asn1", "go/ast", "hash/adler32", "internal/abi", "runtime/asan", "sync/atomic", "runtime/internal/atomic", "net/http/internal/ascii", "cmd/addr2line", "cmd/api", "cmd/asm", "cmd/internal/archive", "cmd/asm/internal/arch", "cmd/asm/internal/asm", "cmd/compile/internal/abi", "cmd/compile/internal/abt", "cmd/compile/internal/amd64", "cmd/compile/internal/arm", "cmd/compile/internal/arm64", "cmd/go/internal/auth", "cmd/internal/obj/arm", "cmd/internal/obj/arm64", "cmd/link/internal/amd64", "cmd/link/internal/arm", "cmd/link/internal/arm64", "archive/tar", "archive/zip", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
 	}, {
-		name:    "c/a",
 		paths:   []string{"c/a"},
+		partial: true,
 		results: []string{"crypto/aes", "cmd/addr2line", "cmd/api", "cmd/asm", "cmd/asm/internal/arch", "cmd/asm/internal/asm", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
 	}, {
-		name:    "as",
 		paths:   []string{"as"},
-		results: []string{"encoding/ascii85", "encoding/asn1", "go/ast", "runtime/asan", "net/http/internal/ascii", "cmd/asm", "cmd/asm/internal/arch", "cmd/asm/internal/asm", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
+		partial: true,
+		results: []string{"encoding/ascii85", "encoding/asn1", "go/ast", "runtime/asan", "net/http/internal/ascii", "cmd/asm", "cmd/asm/internal/asm", "cmd/asm/internal/arch", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
 	}},
 }}
 
 func TestSearch(t *testing.T) {
 	for _, test := range indexTests {
-		t.Run(test.name, func(t *testing.T) { test.run(t) })
+		t.Run(test.name, test.run)
 	}
 }
 
 func BenchmarkSearch_stdlib(b *testing.B) {
-	var pkgIdx *Packages
+	var pkgIdx *Index
 	var matches []godoc.PackageDir
 	codeRoots := []godoc.PackageDir{
 		{"", filepath.Join(build.Default.GOROOT, "src")},
 		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
 	}
 	var randomPartialSearchPath func() string
+	var err error
+	ctx := context.Background()
+	dbPath := ":memory:"
 	exact := false
-	runBenchmark(b, func() {
-		pkgIdx = New(codeRoots, WithNoProgressBar())
+	benchmark.Run(b, func() {
+		pkgIdx, err = Load(ctx, dbPath, codeRoots, WithNoProgressBar())
+		require.NoError(b, err)
 		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx)
 	}, func() {
 		path := randomPartialSearchPath()
-		matches = pkgIdx.Search(path, exact)
+		matches, err = pkgIdx.Search(ctx, path, exact)
+		require.NoError(b, err)
 	})
 	b.Log("num matches: ", len(matches))
 }
 
 func TestRandomPartialSearchPath(t *testing.T) {
+	ctx := context.Background()
+	dbPath := ":memory:"
 	codeRoots := []godoc.PackageDir{
 		{"", filepath.Join(build.Default.GOROOT, "src")},
 		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
 	}
-	pkgIdx := New(codeRoots, WithNoProgressBar())
+	pkgIdx, err := Load(ctx, dbPath, codeRoots, WithNoProgressBar())
+	require.NoError(t, err)
 
 	randomPartialSearchPath := newRandomPartialSearchPathFunc(pkgIdx)
 
@@ -150,16 +168,21 @@ func TestRandomPartialSearchPath(t *testing.T) {
 	t.Log("duplicates:", duplicates)
 	require.Less(t, duplicates, total/2, "too many duplicates")
 }
+
 func BenchmarkRandomPartialSearchPath(b *testing.B) {
 	var path string
-	var pkgIdx *Packages
+	var pkgIdx *Index
 	codeRoots := []godoc.PackageDir{
 		{"", filepath.Join(build.Default.GOROOT, "src")},
 		{"cmd", filepath.Join(build.Default.GOROOT, "src", "cmd")},
 	}
+	ctx := context.Background()
+	dbPath := ":memory:"
+	var err error
 	var randomPartialSearchPath func() string
-	runBenchmark(b, func() {
-		pkgIdx = New(codeRoots, WithNoProgressBar())
+	benchmark.Run(b, func() {
+		pkgIdx, err = Load(ctx, dbPath, codeRoots, WithNoProgressBar())
+		require.NoError(b, err)
 		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx)
 	}, func() {
 		path = randomPartialSearchPath()
@@ -168,22 +191,17 @@ func BenchmarkRandomPartialSearchPath(b *testing.B) {
 }
 
 func init() { rand.Seed(time.Now().UnixNano()) }
-func newRandomPartialSearchPathFunc(pkgIdx *Packages) func() string {
-	// build list of all package import paths split into parts.
-	var pkgs [][]string
-	for _, mod := range pkgIdx.modules {
-		var modParts []string
-		if mod.ImportPath != "" {
-			modParts = strings.Split(mod.ImportPath, "/")
-		}
-		for _, pkg := range mod.Packages {
-			pkgParts := append(modParts, pkg.ImportPathParts[1:]...)
-			pkgs = append(pkgs, pkgParts)
-		}
+func newRandomPartialSearchPathFunc(pkgIdx *Index) func() string {
+	pkgs, err := pkgIdx.Search(context.Background(), "", true)
+	if err != nil {
+		panic(err)
+	}
+	pkgParts := make([][]string, len(pkgs))
+	for i, pkg := range pkgs {
+		pkgParts[i] = strings.Split(pkg.ImportPath, "/")
 	}
 	return func() string {
-		// random package
-		pkg := pkgs[rand.Intn(len(pkgs))]
+		pkg := pkgParts[rand.Intn(len(pkgs))]
 
 		// random selection of one or more parts
 		first := rand.Intn(len(pkg))

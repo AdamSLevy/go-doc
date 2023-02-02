@@ -1,32 +1,47 @@
 package index
 
 import (
-	"bufio"
 	"context"
-	"io"
 	"log"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"aslevy.com/go-doc/internal/godoc"
+	"aslevy.com/go-doc/internal/vendored"
 )
 
-func (idx *Index) syncVendoredModules(ctx context.Context, vendorRoot godoc.PackageDir) error {
-	if idx.vendorUnchanged(vendorRoot) {
-		return nil
-	}
-	const modulesTxt = "modules.txt"
-	modTxtPath := filepath.Join(vendorRoot.Dir, modulesTxt)
-	f, err := os.Open(modTxtPath)
+func (idx *Index) syncVendoredModules(ctx context.Context, vendorRoot godoc.PackageDir) ([]int64, error) {
+	const vendor = true
+	modID, needsSync, err := idx.upsertModule(ctx, vendorRoot, classLocal, vendor)
 	if err != nil {
-		log.Printf("failed to open %s: %v", modTxtPath, err)
-		return nil
+		return nil, err
 	}
-	defer f.Close()
 
-	return idx.syncVendoredModulesTxtFile(ctx, vendorRoot, f)
+	if !needsSync && idx.vendorUnchanged(vendorRoot) {
+		return idx.vendoredModuleIDs(ctx)
+	}
+
+	modIDs := []int64{modID}
+	if err := vendored.Parse(ctx, vendorRoot.Dir, func(ctx context.Context, mod godoc.PackageDir, pkgs ...godoc.PackageDir) error {
+		pkgKeep := make([]int64, len(pkgs))
+		modID, _, err := idx.upsertModule(ctx, mod, classRequired, vendor)
+		if err != nil {
+			return err
+		}
+		modIDs = append(modIDs, modID)
+		for _, pkg := range pkgs {
+			pkgID, err := idx.syncPackage(ctx, modID, mod, pkg)
+			if err != nil {
+				return err
+			}
+			pkgKeep = append(pkgKeep, pkgID)
+		}
+		return idx.prunePackages(ctx, modID, pkgKeep)
+	}); err != nil {
+		return nil, err
+	}
+	return modIDs, nil
 }
+
 func (idx *Index) vendorUnchanged(vendor godoc.PackageDir) bool {
 	info, err := os.Stat(vendor.Dir)
 	if err != nil {
@@ -35,74 +50,23 @@ func (idx *Index) vendorUnchanged(vendor godoc.PackageDir) bool {
 	}
 	return idx.UpdatedAt.After(info.ModTime())
 }
-func (idx *Index) syncVendoredModulesTxtFile(ctx context.Context, vendorRoot godoc.PackageDir, data io.Reader) error {
-	const vendor = true
-	var (
-		err              error
-		modID            int64
-		modRoot          godoc.PackageDir
-		modKeep, pkgKeep []int64
-	)
-	lines := bufio.NewScanner(data)
-	for lines.Scan() && ctx.Err() == nil {
-		modImportPath, _, pkgImportPath := parseModuleTxtLine(lines.Text())
-		if modImportPath != "" {
-			if modID > 0 {
-				if err := idx.prunePackages(ctx, modID, pkgKeep); err != nil {
-					return err
-				}
-				pkgKeep = pkgKeep[:0]
-			}
-			modRoot = godoc.NewPackageDir(
-				modImportPath,
-				filepath.Join(vendorRoot.Dir, modImportPath),
-			)
-			modID, _, err = idx.upsertModule(ctx, modRoot, classRequired, vendor)
-			if err != nil {
-				return err
-			}
-			modKeep = append(modKeep, modID)
-			continue
-		}
-		if pkgImportPath != "" && modID > 0 {
-			pkgID, err := idx.syncPackage(ctx, modID, modRoot, godoc.NewPackageDir(pkgImportPath, ""))
-			if err != nil {
-				return err
-			}
-			pkgKeep = append(pkgKeep, pkgID)
-		}
+
+func (idx *Index) vendoredModuleIDs(ctx context.Context) ([]int64, error) {
+	const query = `SELECT rowid FROM module WHERE vendor = true;`
+	rows, err := idx.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
 	}
-	if modID > 0 && len(pkgKeep) > 0 {
-		if err := idx.prunePackages(ctx, modID, pkgKeep); err != nil {
-			return err
+	defer rows.Close()
+
+	var modIDs []int64
+	for rows.Next() {
+		var modID int64
+		if err := rows.Scan(&modID); err != nil {
+			return nil, err
 		}
+		modIDs = append(modIDs, modID)
 	}
 
-	return idx.pruneModules(ctx, vendor, modKeep)
-}
-func parseModuleTxtLine(line string) (modImportPath, modVersion, pkgImportPath string) {
-	defer func() {
-		dlog.Printf("parseModuleTxtLine(%q) (%q, %q, %q)",
-			line, modImportPath, modVersion, pkgImportPath)
-	}()
-	fields := strings.Fields(line)
-	if len(fields) == 0 {
-		return
-	}
-	switch fields[0] {
-	case "#":
-		// module
-		if len(fields) < 3 {
-			return
-		}
-		modImportPath, modVersion = fields[1], fields[2]
-		if !strings.HasPrefix(modVersion, "v") {
-			modVersion = ""
-		}
-	case "##":
-		// ignore
-	default:
-		pkgImportPath = fields[0]
-	}
-	return
+	return modIDs, rows.Err()
 }
