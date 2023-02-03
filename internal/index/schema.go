@@ -90,18 +90,7 @@ func classString(c class) string {
 	}
 }
 
-type prepared struct {
-	loadModule   *sql.Stmt
-	insertModule *sql.Stmt
-	updateModule *sql.Stmt
-
-	getPackageID  *sql.Stmt
-	insertPackage *sql.Stmt
-
-	insertPartial *sql.Stmt
-}
-
-type _module struct {
+type module struct {
 	ID         int64
 	ImportPath string
 	Dir        string
@@ -109,32 +98,31 @@ type _module struct {
 	Vendor     bool
 }
 
-func scanModule(row sqlRow) (_module, error) {
-	var mod _module
-	return mod, row.Scan(&mod.ID, &mod.ImportPath, &mod.Dir, &mod.Class, &mod.Vendor)
-}
-
-func (idx *Index) loadModule(ctx context.Context, importPath string) (_module, error) {
-	stmt, err := idx.loadModuleStmt(ctx)
+func (idx *Index) loadModule(ctx context.Context, importPath string) (module, error) {
+	stmt, err := idx.stmtLoadModule(ctx)
 	if err != nil {
-		return _module{}, err
+		return module{}, err
 	}
 	return scanModule(stmt.QueryRowContext(ctx, importPath))
 }
-func (idx *Index) loadModuleStmt(ctx context.Context) (*sql.Stmt, error) {
-	if idx.prepared.loadModule != nil {
-		return idx.prepared.loadModule, nil
+func (idx *Index) stmtLoadModule(ctx context.Context) (*sql.Stmt, error) {
+	if idx.preparedStmt.loadModule != nil {
+		return idx.preparedStmt.loadModule, nil
 	}
 	const query = `
 SELECT rowid, importPath, dir, class, vendor FROM module WHERE importPath=?;
 `
 	var err error
-	idx.prepared.loadModule, err = idx.tx.PrepareContext(ctx, query)
-	return idx.prepared.loadModule, err
+	idx.preparedStmt.loadModule, err = idx.tx.PrepareContext(ctx, query)
+	return idx.preparedStmt.loadModule, err
+}
+func scanModule(row sqlRow) (module, error) {
+	var mod module
+	return mod, row.Scan(&mod.ID, &mod.ImportPath, &mod.Dir, &mod.Class, &mod.Vendor)
 }
 
 func (idx *Index) insertModule(ctx context.Context, pkgDir godoc.PackageDir, class class, vendor bool) (int64, error) {
-	stmt, err := idx.insertModuleStmt(ctx)
+	stmt, err := idx.stmtInsertModule(ctx)
 	if err != nil {
 		return -1, err
 	}
@@ -144,20 +132,20 @@ func (idx *Index) insertModule(ctx context.Context, pkgDir godoc.PackageDir, cla
 	}
 	return res.LastInsertId()
 }
-func (idx *Index) insertModuleStmt(ctx context.Context) (*sql.Stmt, error) {
-	if idx.prepared.insertModule != nil {
-		return idx.prepared.insertModule, nil
+func (idx *Index) stmtInsertModule(ctx context.Context) (*sql.Stmt, error) {
+	if idx.preparedStmt.insertModule != nil {
+		return idx.preparedStmt.insertModule, nil
 	}
 	const query = `
 INSERT INTO module (importPath, dir, class, vendor) VALUES (?, ?, ?, ?);
 `
 	var err error
-	idx.prepared.insertModule, err = idx.tx.PrepareContext(ctx, query)
-	return idx.prepared.insertModule, err
+	idx.preparedStmt.insertModule, err = idx.tx.PrepareContext(ctx, query)
+	return idx.preparedStmt.insertModule, err
 }
 
 func (idx *Index) updateModule(ctx context.Context, modID int64, pkgDir godoc.PackageDir, class class, vendor bool) error {
-	stmt, err := idx.updateModuleStmt(ctx)
+	stmt, err := idx.stmtUpdateModule(ctx)
 	if err != nil {
 		return err
 	}
@@ -165,16 +153,16 @@ func (idx *Index) updateModule(ctx context.Context, modID int64, pkgDir godoc.Pa
 	_, err = stmt.ExecContext(ctx, modID, pkgDir.Dir, int(class), vendor)
 	return err
 }
-func (idx *Index) updateModuleStmt(ctx context.Context) (*sql.Stmt, error) {
-	if idx.prepared.updateModule != nil {
-		return idx.prepared.updateModule, nil
+func (idx *Index) stmtUpdateModule(ctx context.Context) (*sql.Stmt, error) {
+	if idx.preparedStmt.updateModule != nil {
+		return idx.preparedStmt.updateModule, nil
 	}
 	const query = `
 UPDATE module SET (dir, class, vendor) = (?, ?, ?) WHERE rowid=?;
 `
 	var err error
-	idx.prepared.updateModule, err = idx.tx.PrepareContext(ctx, query)
-	return idx.prepared.updateModule, err
+	idx.preparedStmt.updateModule, err = idx.tx.PrepareContext(ctx, query)
+	return idx.preparedStmt.updateModule, err
 }
 
 func (idx *Index) pruneModules(ctx context.Context, vendor bool, keep []int64) error {
@@ -203,7 +191,7 @@ func pruneModulesArgs(vendor bool, keep []int64) []any {
 	return args
 }
 
-type _package struct {
+type package_ struct {
 	ID           int64
 	ModuleID     int64
 	RelativePath string
@@ -211,7 +199,7 @@ type _package struct {
 }
 
 func (idx *Index) getPackageID(ctx context.Context, modID int64, relativePath string) (int64, error) {
-	stmt, err := idx.getPackageIDStmt(ctx)
+	stmt, err := idx.stmtGetPackageID(ctx)
 	if err != nil {
 		return -1, err
 	}
@@ -219,20 +207,20 @@ func (idx *Index) getPackageID(ctx context.Context, modID int64, relativePath st
 	err = stmt.QueryRowContext(ctx, modID, relativePath).Scan(&id)
 	return id, err
 }
-func (idx *Index) getPackageIDStmt(ctx context.Context) (*sql.Stmt, error) {
-	if idx.prepared.getPackageID != nil {
-		return idx.prepared.getPackageID, nil
+func (idx *Index) stmtGetPackageID(ctx context.Context) (*sql.Stmt, error) {
+	if idx.preparedStmt.getPackageID != nil {
+		return idx.preparedStmt.getPackageID, nil
 	}
 	const query = `
 SELECT rowid FROM package WHERE moduleId=? AND relativePath=?;
 `
 	var err error
-	idx.prepared.getPackageID, err = idx.tx.PrepareContext(ctx, query)
-	return idx.prepared.getPackageID, err
+	idx.preparedStmt.getPackageID, err = idx.tx.PrepareContext(ctx, query)
+	return idx.preparedStmt.getPackageID, err
 }
 
 func (idx *Index) insertPackage(ctx context.Context, modID int64, relativePath string) (int64, error) {
-	stmt, err := idx.insertPackageStmt(ctx)
+	stmt, err := idx.stmtInsertPackage(ctx)
 	if err != nil {
 		return -1, err
 	}
@@ -242,16 +230,16 @@ func (idx *Index) insertPackage(ctx context.Context, modID int64, relativePath s
 	}
 	return res.LastInsertId()
 }
-func (idx *Index) insertPackageStmt(ctx context.Context) (*sql.Stmt, error) {
-	if idx.prepared.insertPackage != nil {
-		return idx.prepared.insertPackage, nil
+func (idx *Index) stmtInsertPackage(ctx context.Context) (*sql.Stmt, error) {
+	if idx.preparedStmt.insertPackage != nil {
+		return idx.preparedStmt.insertPackage, nil
 	}
 	const query = `
 INSERT INTO package(moduleId, relativePath) VALUES (?, ?);
 `
 	var err error
-	idx.prepared.insertPackage, err = idx.tx.PrepareContext(ctx, query)
-	return idx.prepared.insertPackage, err
+	idx.preparedStmt.insertPackage, err = idx.tx.PrepareContext(ctx, query)
+	return idx.preparedStmt.insertPackage, err
 }
 
 func (idx *Index) prunePackages(ctx context.Context, modID int64, keep []int64) error {
@@ -271,7 +259,7 @@ func prunePackagesArgs(modID int64, keep []int64) []any {
 	return args
 }
 
-type _partial struct {
+type partial struct {
 	ID        int64
 	PackageID int64
 	Parts     string
@@ -279,7 +267,7 @@ type _partial struct {
 }
 
 func (idx *Index) insertPartial(ctx context.Context, pkgID int64, parts string) (int64, error) {
-	stmt, err := idx.insertPartialStmt(ctx)
+	stmt, err := idx.stmtInsertPartial(ctx)
 	if err != nil {
 		return -1, err
 	}
@@ -290,16 +278,16 @@ func (idx *Index) insertPartial(ctx context.Context, pkgID int64, parts string) 
 	}
 	return res.LastInsertId()
 }
-func (idx *Index) insertPartialStmt(ctx context.Context) (*sql.Stmt, error) {
-	if idx.prepared.insertPartial != nil {
-		return idx.prepared.insertPartial, nil
+func (idx *Index) stmtInsertPartial(ctx context.Context) (*sql.Stmt, error) {
+	if idx.preparedStmt.insertPartial != nil {
+		return idx.preparedStmt.insertPartial, nil
 	}
 	const query = `
 INSERT INTO partial(packageId, parts) VALUES (?, ?);
 `
 	var err error
-	idx.prepared.insertPartial, err = idx.tx.PrepareContext(ctx, query)
-	return idx.prepared.insertPartial, err
+	idx.preparedStmt.insertPartial, err = idx.tx.PrepareContext(ctx, query)
+	return idx.preparedStmt.insertPartial, err
 }
 
 //go:embed schema.sql

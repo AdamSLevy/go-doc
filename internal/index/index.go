@@ -12,10 +12,11 @@ import (
 	"aslevy.com/go-doc/internal/godoc"
 )
 
-const (
-	// ApplicationID is the application ID of the database.
-	sqliteApplicationID int32 = 0x0_90_D0C_90 // GO DOC GO
-)
+// sqliteApplicationID is the magic number used to identify sqlite3 databases
+// created by this application.
+//
+// See https://www.sqlite.org/fileformat.html#application_id
+const sqliteApplicationID int32 = 0x0_90_D0C_90 // GO DOC GO
 
 type Index struct {
 	options
@@ -23,11 +24,22 @@ type Index struct {
 	db *sql.DB
 	tx *sql.Tx
 
-	prepared prepared
+	preparedStmt preparedStmt
 
 	sync
 	cancel context.CancelFunc
 	g      *errgroup.Group
+}
+
+type preparedStmt struct {
+	loadModule   *sql.Stmt
+	insertModule *sql.Stmt
+	updateModule *sql.Stmt
+
+	getPackageID  *sql.Stmt
+	insertPackage *sql.Stmt
+
+	insertPartial *sql.Stmt
 }
 
 func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
@@ -75,7 +87,7 @@ func (idx *Index) initSync(ctx context.Context, codeRoots []godoc.PackageDir) er
 		return err
 	}
 
-	if err := idx.updateSchema(ctx); err != nil {
+	if err := idx.applySchema(ctx); err != nil {
 		return err
 	}
 
@@ -88,7 +100,7 @@ func ignoreErrNoRows(err error) error {
 	return err
 }
 
-func (idx *Index) updateSchema(ctx context.Context) error {
+func (idx *Index) applySchema(ctx context.Context) error {
 	schemaVersion, err := idx.schemaVersion(ctx)
 	if err != nil {
 		return err
@@ -102,7 +114,7 @@ func (idx *Index) updateSchema(ctx context.Context) error {
 	if schemaVersion == len(schema) {
 		return nil
 	}
-	// Apply all schema updates.
+	// Apply all schema updates, which should be idempotent.
 	for i, stmt := range schema {
 		_, err := idx.db.ExecContext(ctx, stmt)
 		if err != nil {
