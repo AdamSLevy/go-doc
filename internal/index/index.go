@@ -23,6 +23,8 @@ type Index struct {
 	db *sql.DB
 	tx *sql.Tx
 
+	prepared prepared
+
 	sync
 	cancel context.CancelFunc
 	g      *errgroup.Group
@@ -61,7 +63,9 @@ func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts
 
 func (idx *Index) Close() error {
 	idx.cancel()
-	idx.waitSync()
+	if err := idx.waitSync(); err != nil {
+		dlog.Printf("failed to sync: %v", err)
+	}
 	return idx.db.Close()
 }
 func (idx *Index) waitSync() error { return idx.g.Wait() }

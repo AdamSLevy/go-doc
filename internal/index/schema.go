@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	_ "embed"
 	"fmt"
 	"runtime/debug"
@@ -89,6 +90,17 @@ func classString(c class) string {
 	}
 }
 
+type prepared struct {
+	loadModule   *sql.Stmt
+	insertModule *sql.Stmt
+	updateModule *sql.Stmt
+
+	getPackageID  *sql.Stmt
+	insertPackage *sql.Stmt
+
+	insertPartial *sql.Stmt
+}
+
 type _module struct {
 	ID         int64
 	ImportPath string
@@ -103,30 +115,68 @@ func scanModule(row sqlRow) (_module, error) {
 }
 
 func (idx *Index) loadModule(ctx context.Context, importPath string) (_module, error) {
+	stmt, err := idx.loadModuleStmt(ctx)
+	if err != nil {
+		return _module{}, err
+	}
+	return scanModule(stmt.QueryRowContext(ctx, importPath))
+}
+func (idx *Index) loadModuleStmt(ctx context.Context) (*sql.Stmt, error) {
+	if idx.prepared.loadModule != nil {
+		return idx.prepared.loadModule, nil
+	}
 	const query = `
 SELECT rowid, importPath, dir, class, vendor FROM module WHERE importPath=?;
 `
-	return scanModule(idx.tx.QueryRowContext(ctx, query, importPath))
+	var err error
+	idx.prepared.loadModule, err = idx.tx.PrepareContext(ctx, query)
+	return idx.prepared.loadModule, err
 }
 
 func (idx *Index) insertModule(ctx context.Context, pkgDir godoc.PackageDir, class class, vendor bool) (int64, error) {
-	const query = `
-INSERT INTO module (importPath, dir, class, vendor) VALUES (?, ?, ?, ?);
-`
-	res, err := idx.tx.ExecContext(ctx, query, pkgDir.ImportPath, pkgDir.Dir, int(class), vendor)
+	stmt, err := idx.insertModuleStmt(ctx)
+	if err != nil {
+		return -1, err
+	}
+	res, err := stmt.ExecContext(ctx, pkgDir.ImportPath, pkgDir.Dir, int(class), vendor)
 	if err != nil {
 		return -1, nil
 	}
 	return res.LastInsertId()
 }
+func (idx *Index) insertModuleStmt(ctx context.Context) (*sql.Stmt, error) {
+	if idx.prepared.insertModule != nil {
+		return idx.prepared.insertModule, nil
+	}
+	const query = `
+INSERT INTO module (importPath, dir, class, vendor) VALUES (?, ?, ?, ?);
+`
+	var err error
+	idx.prepared.insertModule, err = idx.tx.PrepareContext(ctx, query)
+	return idx.prepared.insertModule, err
+}
 
 func (idx *Index) updateModule(ctx context.Context, modID int64, pkgDir godoc.PackageDir, class class, vendor bool) error {
+	stmt, err := idx.updateModuleStmt(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.ExecContext(ctx, modID, pkgDir.Dir, int(class), vendor)
+	return err
+}
+func (idx *Index) updateModuleStmt(ctx context.Context) (*sql.Stmt, error) {
+	if idx.prepared.updateModule != nil {
+		return idx.prepared.updateModule, nil
+	}
 	const query = `
 UPDATE module SET (dir, class, vendor) = (?, ?, ?) WHERE rowid=?;
 `
-	_, err := idx.tx.ExecContext(ctx, query, modID, pkgDir.Dir, int(class), vendor)
-	return err
+	var err error
+	idx.prepared.updateModule, err = idx.tx.PrepareContext(ctx, query)
+	return idx.prepared.updateModule, err
 }
+
 func (idx *Index) pruneModules(ctx context.Context, vendor bool, keep []int64) error {
 	query := fmt.Sprintf(`
 DELETE FROM module WHERE vendor=? AND rowid NOT IN (%s);
@@ -161,23 +211,49 @@ type _package struct {
 }
 
 func (idx *Index) getPackageID(ctx context.Context, modID int64, relativePath string) (int64, error) {
+	stmt, err := idx.getPackageIDStmt(ctx)
+	if err != nil {
+		return -1, err
+	}
+	var id int64
+	err = stmt.QueryRowContext(ctx, modID, relativePath).Scan(&id)
+	return id, err
+}
+func (idx *Index) getPackageIDStmt(ctx context.Context) (*sql.Stmt, error) {
+	if idx.prepared.getPackageID != nil {
+		return idx.prepared.getPackageID, nil
+	}
 	const query = `
 SELECT rowid FROM package WHERE moduleId=? AND relativePath=?;
 `
-	var id int64
-	err := idx.tx.QueryRowContext(ctx, query, modID, relativePath).Scan(&id)
-	return id, err
+	var err error
+	idx.prepared.getPackageID, err = idx.tx.PrepareContext(ctx, query)
+	return idx.prepared.getPackageID, err
 }
+
 func (idx *Index) insertPackage(ctx context.Context, modID int64, relativePath string) (int64, error) {
-	const query = `
-INSERT INTO package(moduleId, relativePath) VALUES (?, ?);
-`
-	res, err := idx.tx.ExecContext(ctx, query, modID, relativePath)
+	stmt, err := idx.insertPackageStmt(ctx)
+	if err != nil {
+		return -1, err
+	}
+	res, err := stmt.ExecContext(ctx, modID, relativePath)
 	if err != nil {
 		return -1, fmt.Errorf("failed to insert package: %w", err)
 	}
 	return res.LastInsertId()
 }
+func (idx *Index) insertPackageStmt(ctx context.Context) (*sql.Stmt, error) {
+	if idx.prepared.insertPackage != nil {
+		return idx.prepared.insertPackage, nil
+	}
+	const query = `
+INSERT INTO package(moduleId, relativePath) VALUES (?, ?);
+`
+	var err error
+	idx.prepared.insertPackage, err = idx.tx.PrepareContext(ctx, query)
+	return idx.prepared.insertPackage, err
+}
+
 func (idx *Index) prunePackages(ctx context.Context, modID int64, keep []int64) error {
 	dlog.Printf("pruning unused packages for module %d", modID)
 	query := fmt.Sprintf(`
@@ -203,14 +279,27 @@ type _partial struct {
 }
 
 func (idx *Index) insertPartial(ctx context.Context, pkgID int64, parts string) (int64, error) {
-	const query = `
-INSERT INTO partial(packageId, parts) VALUES (?, ?);
-`
-	res, err := idx.tx.ExecContext(ctx, query, pkgID, parts)
+	stmt, err := idx.insertPartialStmt(ctx)
+	if err != nil {
+		return -1, err
+	}
+
+	res, err := stmt.ExecContext(ctx, pkgID, parts)
 	if err != nil {
 		return -1, fmt.Errorf("failed to insert partial: %w", err)
 	}
 	return res.LastInsertId()
+}
+func (idx *Index) insertPartialStmt(ctx context.Context) (*sql.Stmt, error) {
+	if idx.prepared.insertPartial != nil {
+		return idx.prepared.insertPartial, nil
+	}
+	const query = `
+INSERT INTO partial(packageId, parts) VALUES (?, ?);
+`
+	var err error
+	idx.prepared.insertPartial, err = idx.tx.PrepareContext(ctx, query)
+	return idx.prepared.insertPartial, err
 }
 
 //go:embed schema.sql
