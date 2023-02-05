@@ -36,7 +36,7 @@ CREATE VIEW IF NOT EXISTS modulePackage AS
   SELECT 
     package.rowid,
     trim(module.importPath || '/' || package.relativePath, '/') as packageImportPath,
-    trim(module.dir        || '/' || package.relativePath, '/') as packageDir,
+    rtrim(module.dir        || '/' || package.relativePath, '/') as packageDir,
     package.moduleId,
     module.importPath as moduleImportPath,
     relativePath,

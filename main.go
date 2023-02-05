@@ -44,6 +44,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"go/build"
@@ -56,7 +57,6 @@ import (
 	"strings"
 
 	"aslevy.com/go-doc/internal/completion"
-	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/flags"
 	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/index"
@@ -435,8 +435,8 @@ func findNextPackage(pkg string) (string, bool) {
 	if err := xdirs.Filter(pkg, partials); err == nil {
 		d, ok := xdirs.Next()
 		return d.Dir, ok
-	} else {
-		dlog.Printf("filter error: %s", err)
+	} else if !errors.Is(err, godoc.ErrFilterNotSupported) {
+		log.Fatalf("error filtering package import paths: %v", err)
 	}
 
 	pkgSuffix := "/" + pkg

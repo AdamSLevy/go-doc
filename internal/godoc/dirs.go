@@ -4,6 +4,8 @@
 
 package godoc
 
+import "errors"
+
 // A PackageDir describes a directory holding code by specifying
 // the expected import path and the file system directory.
 type PackageDir struct {
@@ -39,3 +41,5 @@ type Dirs interface {
 	// change, and Reset is called.
 	Filter(path string, partial bool) error
 }
+
+var ErrFilterNotSupported = errors.New("filter not supported")

@@ -1,12 +1,15 @@
 package completion
 
 import (
+	"errors"
 	"go/build"
 	"io/fs"
+	"log"
 	"path/filepath"
 	"strings"
 
 	"aslevy.com/go-doc/internal/dlog"
+	"aslevy.com/go-doc/internal/godoc"
 )
 
 func (c Completer) completePackages(partial string) (matched bool) {
@@ -31,13 +34,15 @@ func (c Completer) completePackageImportPaths(partial string) (matched bool) {
 	shortPaths := make(ShortImportPaths)
 
 	const partialMatches = true
-	if err := c.dirs.Filter(partial, partialMatches); err != nil {
-		c.dirs.Reset()
+	if err := c.dirs.Filter(partial, partialMatches); err != nil && !errors.Is(err, godoc.ErrFilterNotSupported) {
+		log.Fatalf("error filtering package import paths: %v", err)
 	}
+	c.dirs.Reset()
 
 	for {
 		dir, ok := c.dirs.Next()
 		if !ok {
+			dlog.Printf("no more package import paths")
 			break
 		}
 
@@ -52,6 +57,7 @@ func (c Completer) completePackageImportPaths(partial string) (matched bool) {
 			// Not a match.
 			continue
 		}
+		dlog.Printf("found package import path %q", dir.ImportPath)
 
 		desc, ok := describePackage(dir.Dir)
 		if !ok {
@@ -199,6 +205,7 @@ func (c Completer) completePackageFilePaths(partial string) (matched bool) {
 func describePackage(packageDir string) (string, bool) {
 	pkg, err := build.ImportDir(packageDir, build.ImportComment)
 	if err != nil {
+		dlog.Printf("failed to import %q: %v", packageDir, err)
 		return "", false
 	}
 	docs := firstSentence(pkg.Doc)

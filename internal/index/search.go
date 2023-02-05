@@ -55,14 +55,15 @@ func (idx *Index) searchRows(ctx context.Context, path string, partial bool) (*s
 		return nil, err
 	}
 
-	subQuery, params := searchSelectParams(path, partial, maxParts)
+	where, params := searchWhereParams(path, partial, maxParts)
 	query := fmt.Sprintf(`
 SELECT 
   packageImportPath, 
   packageDir, 
   min(partialNumParts) 
-FROM (`+"%s"+`
-)
+FROM 
+  partialPackage
+WHERE %s
 GROUP BY packageImportPath
 ORDER BY 
   partialNumParts  ASC,
@@ -70,51 +71,47 @@ ORDER BY
   moduleImportPath ASC,
   relativeNumParts ASC,
   relativePath     ASC;
-`, subQuery)
+`, where)
 	dlogSearch.Printf("query: \n%s", query)
+	dlogSearch.Printf("params: \n%+v", params)
 	return idx.db.QueryContext(ctx, query, params...)
 }
-func searchSelectParams(path string, partial bool, maxParts int) (subQuery string, params []any) {
-	query := `
-  SELECT
-    *
-  FROM partialPackage 
-  WHERE`
+func searchWhereParams(path string, partial bool, maxParts int) (where string, params []any) {
 	if path == "" {
-		// The empty string is a prefix of all packages, but will never
-		// match any single package exactly.
-		if partial {
-			// If we're doing a partial search, then return all
-			// packages. All packages have at least one part.
-			query += `
-    partialNumParts = 1`
-		} else {
-			// If we're not doing a partial search, then we match
-			// nothing.
-			query += `
-    FALSE`
+		if !partial {
+			return "false", nil
 		}
-		return query, nil
+		return "true", nil
 	}
-	query += `
+	const whereQuery = `(
+    ? AND
     partialNumParts = ? AND
-    parts LIKE ?`
-	var queryBldr strings.Builder
+    parts LIKE ?
+)`
 	numParts, like := searchLike(path, partial)
-	for numParts <= maxParts {
-		if queryBldr.Len() > 0 {
-			queryBldr.WriteString(`
-  UNION`)
-		}
-		queryBldr.WriteString(query)
+	if !partial {
+		return whereQuery, []any{true, numParts, like.String()}
+	}
 
-		params = append(params, numParts)
-		params = append(params, like.String())
-		like.WriteString("/%")
-		numParts++
+	var queryBldr strings.Builder
+	for i := 1; i <= maxParts; i++ {
+		if queryBldr.Len() > 0 {
+			queryBldr.WriteString(` OR `)
+		}
+		queryBldr.WriteString(whereQuery)
+
+		validWhere := i >= numParts
+		params = append(params, validWhere, i, like.String())
+
+		if !validWhere {
+			continue
+		}
+
 		if !partial {
 			break
 		}
+
+		like.WriteString("/%")
 	}
 	return queryBldr.String(), params
 }

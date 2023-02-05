@@ -1,46 +1,47 @@
 goos: darwin
 goarch: arm64
 pkg: aslevy.com/go-doc/internal/index
-BenchmarkDirs-10                        	    9924	    108990 ns/op	    3560 B/op	      89 allocs/op
+BenchmarkDirs-10                        	   13136	     91162 ns/op	    3401 B/op	      86 allocs/op
 --- BENCH: BenchmarkDirs-10
-    dirs_test.go:42: pkg:  {container/heap opt/homebrew/Cellar/go/1.19.5/libexec/src/container/heap} ok:  true
-    dirs_test.go:42: pkg:  {database/sql opt/homebrew/Cellar/go/1.19.5/libexec/src/database/sql} ok:  true
-    dirs_test.go:42: pkg:  { } ok:  false
-BenchmarkSearch_partials_stdlib-10      	    2250	    511418 ns/op	   22150 B/op	     533 allocs/op
+    dirs_test.go:92: pkg:  {embed/internal/embedtest /opt/homebrew/Cellar/go/1.19.5/libexec/src/embed/internal/embedtest} ok:  true
+    dirs_test.go:92: pkg:  { } ok:  false
+    dirs_test.go:92: pkg:  { } ok:  false
+    dirs_test.go:92: pkg:  {net/http/fcgi /opt/homebrew/Cellar/go/1.19.5/libexec/src/net/http/fcgi} ok:  true
+BenchmarkSearch_partials_stdlib-10      	    4435	    279548 ns/op	   23324 B/op	     560 allocs/op
 --- BENCH: BenchmarkSearch_partials_stdlib-10
-    search_test.go:155: num matches:  35
     search_test.go:155: num matches:  1
-    search_test.go:155: num matches:  12
-BenchmarkSearch_exact_stdlib-10         	   12634	     94531 ns/op	    2205 B/op	      65 allocs/op
+    search_test.go:155: num matches:  11
+    search_test.go:155: num matches:  216
+BenchmarkSearch_exact_stdlib-10         	   15339	     77498 ns/op	    2051 B/op	      62 allocs/op
 --- BENCH: BenchmarkSearch_exact_stdlib-10
     search_test.go:155: num matches:  1
     search_test.go:155: num matches:  1
     search_test.go:155: num matches:  1
     search_test.go:155: num matches:  1
-BenchmarkRandomPartialSearchPath-10     	11798496	       101.7 ns/op	      16 B/op	       1 allocs/op
+BenchmarkRandomPartialSearchPath-10     	11751364	       101.9 ns/op	      16 B/op	       1 allocs/op
 --- BENCH: BenchmarkRandomPartialSearchPath-10
-    search_test.go:208: path:  cmd/go/inter
-    search_test.go:208: path:  intern/mip
-    search_test.go:208: path:  cmd
-    search_test.go:208: path:  syscal
-    search_test.go:208: path:  nm
-BenchmarkLoadSync_stdlib-10             	      30	  36347803 ns/op	 4044689 B/op	   56608 allocs/op
+    search_test.go:208: path:  cmd/go/inter/vcs
+    search_test.go:208: path:  int/trace
+    search_test.go:208: path:  os/sig/inte
+    search_test.go:208: path:  cfg
+    search_test.go:208: path:  ssa
+BenchmarkLoadSync_stdlib-10             	      30	  36166418 ns/op	 4044820 B/op	   56611 allocs/op
 --- BENCH: BenchmarkLoadSync_stdlib-10
     sync_test.go:36: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
     sync_test.go:36: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
-BenchmarkLoadSync_InMemory_stdlib-10    	      36	  32709932 ns/op	 3999813 B/op	   55831 allocs/op
+BenchmarkLoadSync_InMemory_stdlib-10    	      36	  32408948 ns/op	 4000563 B/op	   55833 allocs/op
 --- BENCH: BenchmarkLoadSync_InMemory_stdlib-10
     sync_test.go:55: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
     sync_test.go:55: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
-BenchmarkLoadReSync_stdlib-10           	    4580	    252530 ns/op	   28602 B/op	     492 allocs/op
+BenchmarkLoadReSync_stdlib-10           	    4780	    248413 ns/op	   28585 B/op	     492 allocs/op
 --- BENCH: BenchmarkLoadReSync_stdlib-10
-    sync_test.go:80: index sync {CreatedAt:2023-02-03 03:44:47 +0000 UTC UpdatedAt:2023-02-03 03:44:47 +0000 UTC BuildRevision:}
-    sync_test.go:80: index sync {CreatedAt:2023-02-03 03:44:47 +0000 UTC UpdatedAt:2023-02-03 03:44:47 +0000 UTC BuildRevision:}
-    sync_test.go:80: index sync {CreatedAt:2023-02-03 03:44:47 +0000 UTC UpdatedAt:2023-02-03 03:44:48 +0000 UTC BuildRevision:}
-BenchmarkLoadNoSync_stdlib-10           	    6289	    185601 ns/op	   22688 B/op	     325 allocs/op
+    sync_test.go:80: index sync {CreatedAt:2023-02-05 17:26:25 +0000 UTC UpdatedAt:2023-02-05 17:26:25 +0000 UTC BuildRevision:}
+    sync_test.go:80: index sync {CreatedAt:2023-02-05 17:26:25 +0000 UTC UpdatedAt:2023-02-05 17:26:25 +0000 UTC BuildRevision:}
+    sync_test.go:80: index sync {CreatedAt:2023-02-05 17:26:25 +0000 UTC UpdatedAt:2023-02-05 17:26:27 +0000 UTC BuildRevision:}
+BenchmarkLoadNoSync_stdlib-10           	    6315	    182662 ns/op	   22701 B/op	     325 allocs/op
 --- BENCH: BenchmarkLoadNoSync_stdlib-10
-    sync_test.go:105: index sync {CreatedAt:2023-02-03 03:44:48 +0000 UTC UpdatedAt:2023-02-03 03:44:48 +0000 UTC BuildRevision:}
-    sync_test.go:105: index sync {CreatedAt:2023-02-03 03:44:48 +0000 UTC UpdatedAt:2023-02-03 03:44:48 +0000 UTC BuildRevision:}
-    sync_test.go:105: index sync {CreatedAt:2023-02-03 03:44:48 +0000 UTC UpdatedAt:2023-02-03 03:44:48 +0000 UTC BuildRevision:}
+    sync_test.go:105: index sync {CreatedAt:2023-02-05 17:26:27 +0000 UTC UpdatedAt:2023-02-05 17:26:27 +0000 UTC BuildRevision:}
+    sync_test.go:105: index sync {CreatedAt:2023-02-05 17:26:27 +0000 UTC UpdatedAt:2023-02-05 17:26:27 +0000 UTC BuildRevision:}
+    sync_test.go:105: index sync {CreatedAt:2023-02-05 17:26:27 +0000 UTC UpdatedAt:2023-02-05 17:26:27 +0000 UTC BuildRevision:}
 PASS
-ok  	aslevy.com/go-doc/internal/index	11.383s
+ok  	aslevy.com/go-doc/internal/index	12.508s
