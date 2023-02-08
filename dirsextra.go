@@ -19,6 +19,7 @@ func (d *PackageDirs) Next() (godoc.PackageDir, bool) {
 
 func (d *PackageDirs) Reset() { d.dirs().Reset() }
 
-func (d *PackageDirs) Filter(string, bool) error { return godoc.ErrFilterNotSupported }
+func (d *PackageDirs) FilterExact(string) error   { return godoc.ErrFilterNotSupported }
+func (d *PackageDirs) FilterPartial(string) error { return godoc.ErrFilterNotSupported }
 
 func (dirs *Dirs) registerPackage(importPath, dir string) { dirs.scan <- Dir{importPath, dir, true} }

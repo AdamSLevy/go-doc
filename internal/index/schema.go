@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"database/sql"
 	_ "embed"
 	"fmt"
 	"runtime/debug"
@@ -24,7 +23,7 @@ type sync struct {
 	BuildRevision string
 }
 
-func (idx *Index) loadSync(ctx context.Context) error {
+func (idx *Index) selectSync(ctx context.Context) error {
 	const _syncSelect = `
 SELECT createdAt, updatedAt, buildRevision FROM sync WHERE rowid=1;
 `
@@ -98,23 +97,14 @@ type module struct {
 	Vendor     bool
 }
 
-func (idx *Index) loadModule(ctx context.Context, importPath string) (module, error) {
-	stmt, err := idx.stmtLoadModule(ctx)
+func (idx *Index) selectModule(ctx context.Context, importPath string) (module, error) {
+	stmt, err := idx.tx.PrepareContext(ctx, `
+SELECT rowid, importPath, dir, class, vendor FROM module WHERE importPath=?;
+`)
 	if err != nil {
 		return module{}, err
 	}
 	return scanModule(stmt.QueryRowContext(ctx, importPath))
-}
-func (idx *Index) stmtLoadModule(ctx context.Context) (*sql.Stmt, error) {
-	if idx.preparedStmt.loadModule != nil {
-		return idx.preparedStmt.loadModule, nil
-	}
-	const query = `
-SELECT rowid, importPath, dir, class, vendor FROM module WHERE importPath=?;
-`
-	var err error
-	idx.preparedStmt.loadModule, err = idx.tx.PrepareContext(ctx, query)
-	return idx.preparedStmt.loadModule, err
 }
 func scanModule(row sqlRow) (module, error) {
 	var mod module
@@ -122,7 +112,9 @@ func scanModule(row sqlRow) (module, error) {
 }
 
 func (idx *Index) insertModule(ctx context.Context, pkgDir godoc.PackageDir, class class, vendor bool) (int64, error) {
-	stmt, err := idx.stmtInsertModule(ctx)
+	stmt, err := idx.tx.PrepareContext(ctx, `
+INSERT INTO module (importPath, dir, class, vendor) VALUES (?, ?, ?, ?);
+`)
 	if err != nil {
 		return -1, err
 	}
@@ -132,37 +124,17 @@ func (idx *Index) insertModule(ctx context.Context, pkgDir godoc.PackageDir, cla
 	}
 	return res.LastInsertId()
 }
-func (idx *Index) stmtInsertModule(ctx context.Context) (*sql.Stmt, error) {
-	if idx.preparedStmt.insertModule != nil {
-		return idx.preparedStmt.insertModule, nil
-	}
-	const query = `
-INSERT INTO module (importPath, dir, class, vendor) VALUES (?, ?, ?, ?);
-`
-	var err error
-	idx.preparedStmt.insertModule, err = idx.tx.PrepareContext(ctx, query)
-	return idx.preparedStmt.insertModule, err
-}
 
 func (idx *Index) updateModule(ctx context.Context, modID int64, pkgDir godoc.PackageDir, class class, vendor bool) error {
-	stmt, err := idx.stmtUpdateModule(ctx)
+	stmt, err := idx.tx.PrepareContext(ctx, `
+UPDATE module SET (dir, class, vendor) = (?, ?, ?) WHERE rowid=?;
+`)
 	if err != nil {
 		return err
 	}
 
 	_, err = stmt.ExecContext(ctx, modID, pkgDir.Dir, int(class), vendor)
 	return err
-}
-func (idx *Index) stmtUpdateModule(ctx context.Context) (*sql.Stmt, error) {
-	if idx.preparedStmt.updateModule != nil {
-		return idx.preparedStmt.updateModule, nil
-	}
-	const query = `
-UPDATE module SET (dir, class, vendor) = (?, ?, ?) WHERE rowid=?;
-`
-	var err error
-	idx.preparedStmt.updateModule, err = idx.tx.PrepareContext(ctx, query)
-	return idx.preparedStmt.updateModule, err
 }
 
 func (idx *Index) pruneModules(ctx context.Context, vendor bool, keep []int64) error {
@@ -198,8 +170,10 @@ type package_ struct {
 	NumParts     int
 }
 
-func (idx *Index) getPackageID(ctx context.Context, modID int64, relativePath string) (int64, error) {
-	stmt, err := idx.stmtGetPackageID(ctx)
+func (idx *Index) selectPackageID(ctx context.Context, modID int64, relativePath string) (int64, error) {
+	stmt, err := idx.tx.PrepareContext(ctx, `
+SELECT rowid FROM package WHERE moduleId=? AND relativePath=?;
+`)
 	if err != nil {
 		return -1, err
 	}
@@ -207,20 +181,11 @@ func (idx *Index) getPackageID(ctx context.Context, modID int64, relativePath st
 	err = stmt.QueryRowContext(ctx, modID, relativePath).Scan(&id)
 	return id, err
 }
-func (idx *Index) stmtGetPackageID(ctx context.Context) (*sql.Stmt, error) {
-	if idx.preparedStmt.getPackageID != nil {
-		return idx.preparedStmt.getPackageID, nil
-	}
-	const query = `
-SELECT rowid FROM package WHERE moduleId=? AND relativePath=?;
-`
-	var err error
-	idx.preparedStmt.getPackageID, err = idx.tx.PrepareContext(ctx, query)
-	return idx.preparedStmt.getPackageID, err
-}
 
 func (idx *Index) insertPackage(ctx context.Context, modID int64, relativePath string) (int64, error) {
-	stmt, err := idx.stmtInsertPackage(ctx)
+	stmt, err := idx.tx.PrepareContext(ctx, `
+INSERT INTO package(moduleId, relativePath) VALUES (?, ?);
+`)
 	if err != nil {
 		return -1, err
 	}
@@ -229,17 +194,6 @@ func (idx *Index) insertPackage(ctx context.Context, modID int64, relativePath s
 		return -1, fmt.Errorf("failed to insert package: %w", err)
 	}
 	return res.LastInsertId()
-}
-func (idx *Index) stmtInsertPackage(ctx context.Context) (*sql.Stmt, error) {
-	if idx.preparedStmt.insertPackage != nil {
-		return idx.preparedStmt.insertPackage, nil
-	}
-	const query = `
-INSERT INTO package(moduleId, relativePath) VALUES (?, ?);
-`
-	var err error
-	idx.preparedStmt.insertPackage, err = idx.tx.PrepareContext(ctx, query)
-	return idx.preparedStmt.insertPackage, err
 }
 
 func (idx *Index) prunePackages(ctx context.Context, modID int64, keep []int64) error {
@@ -267,7 +221,9 @@ type partial struct {
 }
 
 func (idx *Index) insertPartial(ctx context.Context, pkgID int64, parts string) (int64, error) {
-	stmt, err := idx.stmtInsertPartial(ctx)
+	stmt, err := idx.tx.PrepareContext(ctx, `
+INSERT INTO partial(packageId, parts) VALUES (?, ?);
+`)
 	if err != nil {
 		return -1, err
 	}
@@ -278,16 +234,29 @@ func (idx *Index) insertPartial(ctx context.Context, pkgID int64, parts string) 
 	}
 	return res.LastInsertId()
 }
-func (idx *Index) stmtInsertPartial(ctx context.Context) (*sql.Stmt, error) {
-	if idx.preparedStmt.insertPartial != nil {
-		return idx.preparedStmt.insertPartial, nil
+
+func (idx *Index) applySchema(ctx context.Context) error {
+	schemaVersion, err := idx.schemaVersion(ctx)
+	if err != nil {
+		return err
 	}
-	const query = `
-INSERT INTO partial(packageId, parts) VALUES (?, ?);
-`
-	var err error
-	idx.preparedStmt.insertPartial, err = idx.tx.PrepareContext(ctx, query)
-	return idx.preparedStmt.insertPartial, err
+
+	schema := schema()
+	if schemaVersion > len(schema) {
+		return fmt.Errorf("database schema version (%d) higher than supported (<=%d)", schemaVersion, len(schema))
+	}
+	dlog.Printf("schema version: %d of %d", schemaVersion, len(schema))
+	if schemaVersion == len(schema) {
+		return nil
+	}
+	// Apply all schema updates, which should be idempotent.
+	for i, stmt := range schema {
+		_, err := idx.db.ExecContext(ctx, stmt)
+		if err != nil {
+			return fmt.Errorf("failed to apply schema version %d: %w", i+1, err)
+		}
+	}
+	return nil
 }
 
 //go:embed schema.sql

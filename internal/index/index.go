@@ -3,8 +3,9 @@ package index
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	_ "modernc.org/sqlite"
@@ -12,34 +13,113 @@ import (
 	"aslevy.com/go-doc/internal/godoc"
 )
 
-// sqliteApplicationID is the magic number used to identify sqlite3 databases
-// created by this application.
-//
-// See https://www.sqlite.org/fileformat.html#application_id
-const sqliteApplicationID int32 = 0x0_90_D0C_90 // GO DOC GO
+type Mode = string
+
+const (
+	ModeOff       Mode = "off"
+	ModeAutoSync       = "auto"
+	ModeForceSync      = "force"
+	ModeSkipSync       = "skip"
+)
+
+func modes() string {
+	return strings.Join([]Mode{ModeOff, ModeAutoSync, ModeForceSync, ModeSkipSync}, ", ")
+}
+
+func ParseMode(s string) (Mode, error) {
+	switch s {
+	case ModeOff, ModeAutoSync, ModeForceSync, ModeSkipSync:
+		return s, nil
+	}
+	return ModeAutoSync, fmt.Errorf("invalid index mode: %q", s)
+}
+
+type Option func(*options)
+type options struct {
+	mode               Mode
+	resyncInterval     time.Duration
+	disableProgressBar bool
+}
+
+func newOptions(opts ...Option) options {
+	o := defaultOptions()
+	WithOptions(opts...)(&o)
+	return o
+}
+func defaultOptions() options {
+	return options{
+		mode:           ModeAutoSync,
+		resyncInterval: DefaultResyncInterval,
+	}
+}
+
+func WithOptions(opts ...Option) Option {
+	return func(o *options) {
+		for _, opt := range opts {
+			opt(o)
+		}
+	}
+}
+
+func WithAuto() Option      { return WithMode(ModeAutoSync) }
+func WithOff() Option       { return WithMode(ModeOff) }
+func WithForceSync() Option { return WithMode(ModeForceSync) }
+func WithSkipSync() Option  { return WithMode(ModeSkipSync) }
+func WithMode(mode Mode) Option {
+	return func(o *options) {
+		o.mode = mode
+	}
+}
+
+func WithResyncInterval(interval time.Duration) Option {
+	return func(o *options) {
+		o.resyncInterval = interval
+	}
+}
+
+func WithNoProgressBar() Option {
+	return func(o *options) {
+		o.disableProgressBar = true
+	}
+}
 
 type Index struct {
 	options
 
 	db *sql.DB
-	tx *sql.Tx
-
-	preparedStmt preparedStmt
+	tx *sqlTx
 
 	sync
 	cancel context.CancelFunc
 	g      *errgroup.Group
 }
 
-type preparedStmt struct {
-	loadModule   *sql.Stmt
-	insertModule *sql.Stmt
-	updateModule *sql.Stmt
+type sqlTx struct {
+	*sql.Tx
+	stmts map[string]*sql.Stmt
+}
 
-	getPackageID  *sql.Stmt
-	insertPackage *sql.Stmt
+func newSqlTx(tx *sql.Tx) *sqlTx {
+	return &sqlTx{
+		Tx:    tx,
+		stmts: make(map[string]*sql.Stmt),
+	}
+}
 
-	insertPartial *sql.Stmt
+func (tx *sqlTx) Prepare(query string) (*sql.Stmt, error) {
+	return tx.PrepareContext(context.Background(), query)
+}
+func (tx *sqlTx) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	stmt, ok := tx.stmts[query]
+	if ok {
+		return stmt, nil
+	}
+	stmt, err := tx.Tx.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	tx.stmts[query] = stmt
+	return stmt, nil
 }
 
 func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
@@ -49,6 +129,7 @@ func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts
 	}
 
 	dlog.Printf("loading %q", dbPath)
+	dlog.Printf("options: %+v", o)
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open index database: %w", err)
@@ -92,80 +173,4 @@ func (idx *Index) initSync(ctx context.Context, codeRoots []godoc.PackageDir) er
 	}
 
 	return idx.syncCodeRoots(ctx, codeRoots)
-}
-func ignoreErrNoRows(err error) error {
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	return err
-}
-
-func (idx *Index) applySchema(ctx context.Context) error {
-	schemaVersion, err := idx.schemaVersion(ctx)
-	if err != nil {
-		return err
-	}
-
-	schema := schema()
-	if schemaVersion > len(schema) {
-		return fmt.Errorf("database schema version (%d) higher than supported (<=%d)", schemaVersion, len(schema))
-	}
-	dlog.Printf("schema version: %d of %d", schemaVersion, len(schema))
-	if schemaVersion == len(schema) {
-		return nil
-	}
-	// Apply all schema updates, which should be idempotent.
-	for i, stmt := range schema {
-		_, err := idx.db.ExecContext(ctx, stmt)
-		if err != nil {
-			return fmt.Errorf("failed to apply schema version %d: %w", i+1, err)
-		}
-	}
-	return nil
-}
-
-func (idx *Index) checkSetApplicationID(ctx context.Context) error {
-	const pragmaApplicationID = "application_id"
-	var appID int32
-	if err := idx.readPragma(ctx, pragmaApplicationID, &appID); err != nil {
-		return err
-	}
-	if appID == 0 {
-		if err := idx.setPragma(ctx, pragmaApplicationID, sqliteApplicationID); err != nil {
-			return err
-		}
-	} else if appID != sqliteApplicationID {
-		return fmt.Errorf("database is not for this application")
-	}
-	return nil
-}
-
-func (idx *Index) schemaVersion(ctx context.Context) (int, error) {
-	var schemaVersion int
-	if err := idx.readPragma(ctx, "schema_version", &schemaVersion); err != nil {
-		return 0, err
-	}
-	return schemaVersion, nil
-}
-
-func (idx *Index) enableForeignKeys(ctx context.Context) error {
-	return idx.setPragma(ctx, "foreign_keys", "on")
-}
-
-func (idx *Index) readPragma(ctx context.Context, key string, val any) error {
-	query := fmt.Sprintf(`PRAGMA %s;`, key)
-	err := idx.db.QueryRowContext(ctx, query).Scan(val)
-	if err != nil {
-		return fmt.Errorf("failed to read pragma %s: %w", key, err)
-	}
-	return nil
-}
-
-func (idx *Index) setPragma(ctx context.Context, key string, val any) error {
-	query := fmt.Sprintf(`PRAGMA %s=%v;`, key, val)
-	_, err := idx.db.ExecContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("failed to set pragma %s=%v: %w", key, val, err)
-	}
-	return nil
 }

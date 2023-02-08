@@ -33,11 +33,10 @@ func (c Completer) completePackageImportPaths(partial string) (matched bool) {
 	dlog.Printf("partials: %v", partials)
 	shortPaths := make(ShortImportPaths)
 
-	const partialMatches = true
-	if err := c.dirs.Filter(partial, partialMatches); err != nil && !errors.Is(err, godoc.ErrFilterNotSupported) {
+	c.dirs.Reset()
+	if err := c.dirs.FilterPartial(partial); err != nil && !errors.Is(err, godoc.ErrFilterNotSupported) {
 		log.Fatalf("error filtering package import paths: %v", err)
 	}
-	c.dirs.Reset()
 
 	for {
 		dir, ok := c.dirs.Next()

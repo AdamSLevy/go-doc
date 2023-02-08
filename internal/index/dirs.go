@@ -41,15 +41,15 @@ func (d *Dirs) Next() (pkg godoc.PackageDir, ok bool) {
 	}
 	return pkg, ok
 }
-func (d *Dirs) Filter(path string, partial bool) error {
-	if d.searchPath == path && d.searchPartial == partial {
+func (d *Dirs) FilterExact(path string) error   { return d.filter(path) }
+func (d *Dirs) FilterPartial(path string) error { return d.filter(path, WithMatchPartials()) }
+func (d *Dirs) filter(path string, opts ...SearchOption) error {
+	o := newSearchOptions(opts...)
+	if d.searchPath == path && d.searchPartial == o.matchPartials {
 		return nil
 	}
 
-	if err := d.idx.waitSync(); err != nil {
-		return err
-	}
-
+	dlogSearch.Printf("filtering dirs: %q (partial: %v)", path, o.matchPartials)
 	d.Reset()
 	if d.cancel != nil {
 		d.cancel()
@@ -61,13 +61,13 @@ func (d *Dirs) Filter(path string, partial bool) error {
 	ctx, cancel := context.WithCancel(ctx)
 	d.cancel = cancel
 
-	rows, err := d.idx.searchRows(ctx, path, partial)
+	rows, err := d.idx.searchRows(ctx, path, opts...)
 	if err != nil {
 		return err
 	}
 
 	d.searchPath = path
-	d.searchPartial = partial
+	d.searchPartial = o.matchPartials
 	d.next = make(chan godoc.PackageDir)
 
 	d.g, ctx = errgroup.WithContext(ctx)

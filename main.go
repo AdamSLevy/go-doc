@@ -57,6 +57,7 @@ import (
 	"strings"
 
 	"aslevy.com/go-doc/internal/completion"
+	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/flags"
 	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/index"
@@ -431,9 +432,9 @@ func findNextPackage(pkg string) (string, bool) {
 	}
 	pkg = path.Clean(pkg)
 
-	const partials = false
-	if err := xdirs.Filter(pkg, partials); err == nil {
+	if err := xdirs.FilterExact(pkg); err == nil {
 		d, ok := xdirs.Next()
+		dlog.Println("findNextPackage", pkg, d, ok)
 		return d.Dir, ok
 	} else if !errors.Is(err, godoc.ErrFilterNotSupported) {
 		log.Fatalf("error filtering package import paths: %v", err)

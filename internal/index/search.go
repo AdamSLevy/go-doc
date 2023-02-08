@@ -11,8 +11,32 @@ import (
 
 var dlogSearch = dlog.Child("search")
 
-func (idx *Index) Search(ctx context.Context, path string, partial bool) ([]godoc.PackageDir, error) {
-	rows, err := idx.searchRows(ctx, path, partial)
+type SearchOption func(*searchOptions)
+
+type searchOptions struct {
+	matchPartials bool
+}
+
+func newSearchOptions(opts ...SearchOption) searchOptions {
+	var o searchOptions
+	WithSearchOptions(opts...)(&o)
+	return o
+}
+func WithSearchOptions(opts ...SearchOption) SearchOption {
+	return func(o *searchOptions) {
+		for _, opt := range opts {
+			opt(o)
+		}
+	}
+}
+func WithMatchPartials() SearchOption {
+	return func(o *searchOptions) {
+		o.matchPartials = true
+	}
+}
+
+func (idx *Index) Search(ctx context.Context, path string, opts ...SearchOption) ([]godoc.PackageDir, error) {
+	rows, err := idx.searchRows(ctx, path, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -45,18 +69,27 @@ func scanPackageDir(row sqlRow) (godoc.PackageDir, error) {
 	return pkg, row.Scan(&pkg.ImportPath, &pkg.Dir, &min)
 }
 
-func (idx *Index) searchRows(ctx context.Context, path string, partial bool) (*sql.Rows, error) {
+func (idx *Index) searchRows(ctx context.Context, path string, opts ...SearchOption) (*sql.Rows, error) {
 	if err := idx.waitSync(); err != nil {
 		return nil, err
 	}
 
-	maxParts, err := idx.maxPartialNumParts(ctx)
+	query, params, err := idx.searchQueryParams(ctx, path, opts...)
 	if err != nil {
 		return nil, err
 	}
+	dlogSearch.Printf("query: \n%s", query)
+	dlogSearch.Printf("params: \n%+v", params)
+	return idx.db.QueryContext(ctx, query, params...)
+}
 
-	where, params := searchWhereParams(path, partial, maxParts)
-	query := fmt.Sprintf(`
+func (idx *Index) searchQueryParams(ctx context.Context, path string, opts ...SearchOption) (query string, params []any, _ error) {
+	where, params, err := idx.searchWhereParams(ctx, path, opts...)
+	if err != nil {
+		return "", nil, err
+	}
+
+	const selectQuery = `
 SELECT 
   packageImportPath, 
   packageDir, 
@@ -71,27 +104,47 @@ ORDER BY
   moduleImportPath ASC,
   relativeNumParts ASC,
   relativePath     ASC;
-`, where)
-	dlogSearch.Printf("query: \n%s", query)
-	dlogSearch.Printf("params: \n%+v", params)
-	return idx.db.QueryContext(ctx, query, params...)
+`
+	return fmt.Sprintf(selectQuery, where), params, err
 }
-func searchWhereParams(path string, partial bool, maxParts int) (where string, params []any) {
-	if path == "" {
-		if !partial {
-			return "false", nil
-		}
-		return "true", nil
+func (idx *Index) searchWhereParams(ctx context.Context, path string, opts ...SearchOption) (where string, params []any, _ error) {
+	o := newSearchOptions(opts...)
+	if !o.matchPartials {
+		return idx.searchWhereParamsExact(path)
 	}
+	return idx.searchWhereParamsPartial(ctx, path)
+}
+func (idx *Index) searchWhereParamsExact(path string) (where string, params []any, _ error) {
+	if path == "" {
+		return "FALSE", nil, nil
+	}
+
+	where = `(
+    partialNumParts = ? AND
+    parts = ?
+)`
+	params = []any{
+		strings.Count(path, "/") + 1,
+		path,
+	}
+	return
+}
+func (idx *Index) searchWhereParamsPartial(ctx context.Context, path string) (where string, params []any, _ error) {
+	if path == "" {
+		return "TRUE", nil, nil
+	}
+
+	maxParts, err := idx.maxPartialNumParts(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+
 	const whereQuery = `(
     ? AND
     partialNumParts = ? AND
     parts LIKE ?
 )`
-	numParts, like := searchLike(path, partial)
-	if !partial {
-		return whereQuery, []any{true, numParts, like.String()}
-	}
+	numParts, like := searchLike(path)
 
 	var queryBldr strings.Builder
 	for i := 1; i <= maxParts; i++ {
@@ -107,16 +160,12 @@ func searchWhereParams(path string, partial bool, maxParts int) (where string, p
 			continue
 		}
 
-		if !partial {
-			break
-		}
-
 		like.WriteString("/%")
 	}
-	return queryBldr.String(), params
+	return queryBldr.String(), params, nil
 }
-func searchLike(path string, partial bool) (numParts int, like *strings.Builder) {
-	like = &strings.Builder{}
+func searchLike(path string) (numParts int, like *strings.Builder) {
+	like = new(strings.Builder)
 	parts := strings.Split(path, "/")
 	numParts = len(parts)
 	like.Grow(len(path) + numParts)
@@ -132,9 +181,7 @@ func searchLike(path string, partial bool) (numParts int, like *strings.Builder)
 			continue
 		}
 		like.WriteString(part)
-		if partial {
-			like.WriteByte('%')
-		}
+		like.WriteByte('%')
 	}
 	return numParts, like
 }

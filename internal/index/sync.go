@@ -2,6 +2,8 @@ package index
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -22,12 +24,18 @@ func (idx *Index) needsSync(ctx context.Context) (bool, error) {
 	case ModeForceSync:
 		return true, nil
 	}
-	if err := idx.loadSync(ctx); ignoreErrNoRows(err) != nil {
+	if err := idx.selectSync(ctx); ignoreErrNoRows(err) != nil {
 		return false, err
 	}
 	dlogSync.Printf("created at: %v", idx.sync.CreatedAt.Local())
 	dlogSync.Printf("updated at: %v", idx.sync.UpdatedAt.Local())
 	return time.Since(idx.sync.UpdatedAt) > idx.options.resyncInterval, nil
+}
+func ignoreErrNoRows(err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	return err
 }
 
 func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDir) (retErr error) {
@@ -69,9 +77,8 @@ func (idx *Index) beginTx(ctx context.Context) (commitIfNilErr func(*error), _ e
 	if err != nil {
 		return nil, err
 	}
-	idx.tx = tx
+	idx.tx = newSqlTx(tx)
 	return func(retErr *error) {
-		idx.tx = nil
 		if *retErr != nil {
 			tx.Rollback()
 			return
@@ -131,7 +138,7 @@ func (idx *Index) syncModule(ctx context.Context, root godoc.PackageDir, class i
 }
 
 func (idx *Index) upsertModule(ctx context.Context, root godoc.PackageDir, class class, vendor bool) (modID int64, needsSync bool, _ error) {
-	mod, err := idx.loadModule(ctx, root.ImportPath)
+	mod, err := idx.selectModule(ctx, root.ImportPath)
 	if ignoreErrNoRows(err) != nil {
 		return -1, false, err
 	}
@@ -228,7 +235,7 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 func (idx *Index) syncPackage(ctx context.Context, modID int64, root, pkg godoc.PackageDir) (int64, error) {
 	dlogSync.Printf("syncing package %q in %q", pkg.ImportPath, pkg.Dir)
 	relativePath := strings.TrimPrefix(pkg.ImportPath[len(root.ImportPath):], "/")
-	pkgID, err := idx.getPackageID(ctx, modID, relativePath)
+	pkgID, err := idx.selectPackageID(ctx, modID, relativePath)
 	if ignoreErrNoRows(err) != nil {
 		return -1, err
 	}

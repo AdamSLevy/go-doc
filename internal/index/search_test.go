@@ -4,11 +4,8 @@ import (
 	"context"
 	"flag"
 	"go/build"
-	"math/rand"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"aslevy.com/go-doc/internal/benchmark"
 	"aslevy.com/go-doc/internal/godoc"
@@ -44,11 +41,13 @@ func (test searchTest) run(t *testing.T, pkgs *Index) {
 	ctx := context.Background()
 	for _, path := range test.paths {
 		name := "exact:"
+		var opts []SearchOption
 		if test.partial {
 			name = "partial:"
+			opts = append(opts, WithMatchPartials())
 		}
 		t.Run(name+path, func(t *testing.T) {
-			results, err := pkgs.Search(ctx, path, test.partial)
+			results, err := pkgs.Search(ctx, path, opts...)
 			require.NoError(t, err)
 			require.Equal(t, test.results, importPaths(results))
 		})
@@ -138,18 +137,21 @@ func benchmarkSearch_stdlib(b *testing.B, partial bool) {
 	codeRoots := stdlibCodeRoots()
 	opts := WithOptions(WithNoProgressBar())
 
+	var searchOpts []SearchOption
+	if partial {
+		searchOpts = append(searchOpts, WithMatchPartials())
+	}
 	var matches []godoc.PackageDir
-	var randomPartialSearchPath func() string
 	var err error
 
 	var pkgIdx *Index
 	benchmark.Run(b, func() {
 		pkgIdx, err = Load(ctx, dbPath, codeRoots, opts)
 		require.NoError(err)
-		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx, partial)
 	}, func() {
-		path := randomPartialSearchPath()
-		matches, err = pkgIdx.Search(ctx, path, partial)
+		path, err := pkgIdx.randomPartial()
+		require.NoError(err)
+		matches, err = pkgIdx.Search(ctx, path, searchOpts...)
 		require.NoError(err)
 	})
 	b.Log("num matches: ", len(matches))
@@ -166,14 +168,12 @@ func TestRandomPartialSearchPath(t *testing.T) {
 	pkgIdx, err := Load(ctx, dbPath, codeRoots, opts)
 	require.NoError(err)
 
-	const partial = true
-	randomPartialSearchPath := newRandomPartialSearchPathFunc(pkgIdx, partial)
-
 	paths := make(map[string]struct{})
 	var duplicates int
 	const total = 1000
 	for i := 0; i < total; i++ {
-		path := randomPartialSearchPath()
+		path, err := pkgIdx.randomPartial()
+		require.NoError(err)
 		if _, duplicate := paths[path]; duplicate {
 			// t.Log("duplicate path:", path, i)
 			duplicates++
@@ -191,7 +191,6 @@ func BenchmarkRandomPartialSearchPath(b *testing.B) {
 	var path string
 	var pkgIdx *Index
 	var err error
-	var randomPartialSearchPath func() string
 	benchmark.Run(b, func() {
 		ctx := context.Background()
 		dbPath := dbMem
@@ -200,52 +199,19 @@ func BenchmarkRandomPartialSearchPath(b *testing.B) {
 
 		pkgIdx, err = Load(ctx, dbPath, codeRoots, opts)
 		require.NoError(b, err)
-		const partial = true
-		randomPartialSearchPath = newRandomPartialSearchPathFunc(pkgIdx, partial)
 	}, func() {
-		path = randomPartialSearchPath()
+		path, err = pkgIdx.randomPartial()
+		require.NoError(b, err)
 	})
 	b.Log("path: ", path)
 }
 
-func init() { rand.Seed(time.Now().UnixNano()) }
-func newRandomPartialSearchPathFunc(pkgIdx *Index, partial bool) func() string {
-	allPkgs, err := pkgIdx.Search(context.Background(), "", true)
-	if err != nil {
-		panic(err)
+func (pkgIdx *Index) randomPartial() (path string, err error) {
+	if err := pkgIdx.waitSync(); err != nil {
+		return "", err
 	}
-	allPkgParts := make([][]string, len(allPkgs))
-	for i, pkg := range allPkgs {
-		allPkgParts[i] = strings.Split(pkg.ImportPath, "/")
-	}
-	return func() string {
-		pkgParts := allPkgParts[rand.Intn(len(allPkgs))]
-
-		// random selection of one or more parts
-		first := rand.Intn(len(pkgParts))
-		if !partial {
-			return strings.Join(pkgParts[first:], "/")
-		}
-
-		last := rand.Intn(len(pkgParts))
-		if first > last {
-			first, last = last, first
-		}
-
-		parts := pkgParts[first : last+1]
-
-		// random truncation of each part
-		var path string
-		minLen := 3
-		for _, part := range parts {
-			partLen := minLen
-			if partLen > len(part) {
-				partLen = len(part)
-			} else if partLen < len(part) {
-				partLen += rand.Intn(len(part) - partLen)
-			}
-			path += part[:partLen] + "/"
-		}
-		return path[:len(path)-1] // omit trailing slash
-	}
+	err = pkgIdx.db.QueryRow(`
+SELECT parts FROM partial ORDER BY RANDOM() LIMIT 1;
+`).Scan(&path)
+	return
 }
