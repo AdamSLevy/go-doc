@@ -24,12 +24,12 @@ func (idx *Index) needsSync(ctx context.Context) (bool, error) {
 	case ModeForceSync:
 		return true, nil
 	}
-	if err := idx.selectSync(ctx); ignoreErrNoRows(err) != nil {
+	if err := idx.selectMetadata(ctx); ignoreErrNoRows(err) != nil {
 		return false, err
 	}
-	dlogSync.Printf("created at: %v", idx.sync.CreatedAt.Local())
-	dlogSync.Printf("updated at: %v", idx.sync.UpdatedAt.Local())
-	return time.Since(idx.sync.UpdatedAt) > idx.options.resyncInterval, nil
+	dlogSync.Printf("created at: %v", idx.metadata.CreatedAt.Local())
+	dlogSync.Printf("updated at: %v", idx.metadata.UpdatedAt.Local())
+	return time.Since(idx.metadata.UpdatedAt) > idx.options.resyncInterval, nil
 }
 func ignoreErrNoRows(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
@@ -70,7 +70,7 @@ func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDi
 	}
 	pb.Add(1)
 
-	return idx.upsertSync(ctx)
+	return idx.upsertMetadata(ctx)
 }
 func (idx *Index) beginTx(ctx context.Context) (commitIfNilErr func(*error), _ error) {
 	tx, err := idx.db.BeginTx(ctx, nil)

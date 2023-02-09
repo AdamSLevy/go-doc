@@ -2,7 +2,9 @@ package index
 
 import (
 	"context"
+	"database/sql"
 	"flag"
+	"fmt"
 	"go/build"
 	"path/filepath"
 	"testing"
@@ -29,7 +31,7 @@ func (test indexTest) run(t *testing.T) {
 	require := require.New(t)
 	t.Helper()
 	ctx := context.Background()
-	pkgs, err := Load(ctx, dbMem, test.mods, WithNoProgressBar())
+	pkgs, err := Load(ctx, dbMem, test.mods, loadOpts())
 	require.NoError(err)
 	t.Cleanup(func() {
 		require.NoError(pkgs.Close())
@@ -137,7 +139,6 @@ func benchmarkSearch_stdlib(b *testing.B, partial bool) {
 
 	ctx := context.Background()
 	codeRoots := stdlibCodeRoots()
-	opts := WithOptions(WithNoProgressBar())
 
 	var searchOpts []SearchOption
 	if partial {
@@ -147,12 +148,17 @@ func benchmarkSearch_stdlib(b *testing.B, partial bool) {
 	var err error
 
 	var pkgIdx *Index
+	var randomPartial *randomPartial
 	benchmark.Run(b, func() {
-		pkgIdx, err = Load(ctx, dbFilePath(b), codeRoots, opts)
+		pkgIdx, err = Load(ctx, dbFilePath(b), codeRoots, loadOpts())
 		require.NoError(err)
 		b.Cleanup(func() { require.NoError(pkgIdx.Close()) })
+
+		randomPartial, err = pkgIdx.randomPartial()
+		require.NoError(err)
+		b.Cleanup(func() { require.NoError(randomPartial.Close()) })
 	}, func() {
-		path, err := pkgIdx.randomPartial()
+		path, err := randomPartial.randomPartial()
 		require.NoError(err)
 		matches, err = pkgIdx.Search(ctx, path, searchOpts...)
 		require.NoError(err)
@@ -165,17 +171,20 @@ func TestRandomPartialSearchPath(t *testing.T) {
 
 	ctx := context.Background()
 	codeRoots := stdlibCodeRoots()
-	opts := WithOptions(WithNoProgressBar())
 
-	pkgIdx, err := Load(ctx, dbFilePath(t), codeRoots, opts)
+	pkgIdx, err := Load(ctx, dbFilePath(t), codeRoots, loadOpts())
 	require.NoError(err)
 	t.Cleanup(func() { require.NoError(pkgIdx.Close()) })
+
+	randomPartial, err := pkgIdx.randomPartial()
+	require.NoError(err)
+	t.Cleanup(func() { require.NoError(randomPartial.Close()) })
 
 	paths := make(map[string]struct{})
 	var duplicates int
 	const total = 1000
 	for i := 0; i < total; i++ {
-		path, err := pkgIdx.randomPartial()
+		path, err := randomPartial.randomPartial()
 		require.NoError(err)
 		if _, duplicate := paths[path]; duplicate {
 			// t.Log("duplicate path:", path, i)
@@ -194,6 +203,7 @@ func BenchmarkRandomPartialSearchPath(b *testing.B) {
 	require := require.New(b)
 	var path string
 	var pkgIdx *Index
+	var randomPartial *randomPartial
 	var err error
 	benchmark.Run(b, func() {
 		ctx := context.Background()
@@ -203,19 +213,68 @@ func BenchmarkRandomPartialSearchPath(b *testing.B) {
 		pkgIdx, err = Load(ctx, dbMem, codeRoots, opts)
 		require.NoError(err)
 		b.Cleanup(func() { require.NoError(pkgIdx.Close()) })
+
+		randomPartial, err = pkgIdx.randomPartial()
+		require.NoError(err)
+		b.Cleanup(func() { require.NoError(randomPartial.Close()) })
 	}, func() {
-		path, err = pkgIdx.randomPartial()
+		path, err = randomPartial.randomPartial()
 		require.NoError(err)
 	})
 	b.Log("path: ", path)
 }
 
-func (pkgIdx *Index) randomPartial() (path string, err error) {
+func (pkgIdx *Index) randomPartial() (*randomPartial, error) {
 	if err := pkgIdx.waitSync(); err != nil {
-		return "", err
+		return nil, err
 	}
-	err = pkgIdx.db.QueryRow(`
-SELECT parts FROM partial ORDER BY RANDOM() LIMIT 1;
-`).Scan(&path)
-	return
+	stmt, err := pkgIdx.db.Prepare(`
+SELECT parts FROM partial ORDER BY RANDOM();
+`)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.Query()
+	if err != nil {
+		return nil, err
+	}
+	return &randomPartial{
+		stmt: stmt,
+		rows: rows,
+	}, nil
+}
+
+type randomPartial struct {
+	stmt *sql.Stmt
+	rows *sql.Rows
+}
+
+func (r *randomPartial) Close() error {
+	if r.stmt != nil {
+		if err := r.stmt.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (r *randomPartial) randomPartial() (string, error) {
+	if !r.rows.Next() {
+		if err := r.rows.Close(); err != nil {
+			return "", err
+		}
+		rows, err := r.stmt.Query()
+		if err != nil {
+			return "", err
+		}
+		r.rows = rows
+		if !r.rows.Next() {
+			return "", fmt.Errorf("no rows")
+		}
+	}
+	return scanImportPath(r.rows)
+
+}
+func scanImportPath(rows sqlRow) (string, error) {
+	var path string
+	return path, rows.Scan(&path)
 }

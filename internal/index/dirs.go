@@ -49,7 +49,6 @@ func (d *Dirs) filter(path string, opts ...SearchOption) error {
 		return nil
 	}
 
-	dlogSearch.Printf("filtering dirs: %q (partial: %v)", path, o.matchPartials)
 	d.Reset()
 	if d.cancel != nil {
 		d.cancel()
@@ -59,7 +58,6 @@ func (d *Dirs) filter(path string, opts ...SearchOption) error {
 
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
-	d.cancel = cancel
 
 	rows, err := d.idx.searchRows(ctx, path, opts...)
 	if err != nil {
@@ -70,6 +68,7 @@ func (d *Dirs) filter(path string, opts ...SearchOption) error {
 	d.searchPartial = o.matchPartials
 	d.next = make(chan godoc.PackageDir)
 
+	d.cancel = cancel
 	d.g, ctx = errgroup.WithContext(ctx)
 	d.g.Go(func() error {
 		defer cancel()

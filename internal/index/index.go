@@ -89,37 +89,9 @@ type Index struct {
 	db *sql.DB
 	tx *sqlTx
 
-	sync
+	metadata
 	cancel context.CancelFunc
 	g      *errgroup.Group
-}
-
-type sqlTx struct {
-	*sql.Tx
-	stmts map[string]*sql.Stmt
-}
-
-func newSqlTx(tx *sql.Tx) *sqlTx {
-	return &sqlTx{
-		Tx:    tx,
-		stmts: make(map[string]*sql.Stmt),
-	}
-}
-
-func (tx *sqlTx) Prepare(query string) (*sql.Stmt, error) {
-	return tx.PrepareContext(context.Background(), query)
-}
-func (tx *sqlTx) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
-	stmt, ok := tx.stmts[query]
-	if ok {
-		return stmt, nil
-	}
-	stmt, err := tx.Tx.PrepareContext(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	tx.stmts[query] = stmt
-	return stmt, nil
 }
 
 func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
@@ -154,15 +126,6 @@ func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts
 	return &idx, nil
 }
 
-func (idx *Index) Close() error {
-	idx.cancel()
-	if err := idx.waitSync(); err != nil {
-		dlog.Printf("failed to sync: %v", err)
-	}
-	return idx.db.Close()
-}
-func (idx *Index) waitSync() error { return idx.g.Wait() }
-
 func (idx *Index) initSync(ctx context.Context, codeRoots []godoc.PackageDir) error {
 	if err := idx.enableForeignKeys(ctx); err != nil {
 		return err
@@ -173,4 +136,14 @@ func (idx *Index) initSync(ctx context.Context, codeRoots []godoc.PackageDir) er
 	}
 
 	return idx.syncCodeRoots(ctx, codeRoots)
+}
+
+func (idx *Index) waitSync() error { return idx.g.Wait() }
+
+func (idx *Index) Close() error {
+	idx.cancel()
+	if err := idx.waitSync(); err != nil {
+		dlog.Printf("failed to sync: %v", err)
+	}
+	return idx.db.Close()
 }

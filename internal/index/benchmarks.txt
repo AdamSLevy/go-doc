@@ -1,82 +1,48 @@
 goos: darwin
 goarch: arm64
 pkg: aslevy.com/go-doc/internal/index
-BenchmarkDirs-10                        	    2976	    355957 ns/op	    7229 B/op	     147 allocs/op
---- BENCH: BenchmarkDirs-10
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkDirs2196828003/001/index.sqlite3
-    dirs_test.go:92: pkg:  { } ok:  false
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkDirs2089378843/002/index.sqlite3
-    dirs_test.go:92: pkg:  {net/http/httptrace /opt/homebrew/Cellar/go/1.19.5/libexec/src/net/http/httptrace} ok:  true
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkDirs3593325758/003/index.sqlite3
-    dirs_test.go:92: pkg:  {crypto/x509/internal/macos /opt/homebrew/Cellar/go/1.19.5/libexec/src/crypto/x509/internal/macos} ok:  true
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkDirs55138379/004/index.sqlite3
-    dirs_test.go:92: pkg:  { } ok:  false
-BenchmarkSearch_partials_stdlib-10      	    2433	    455069 ns/op	   16262 B/op	     362 allocs/op
+BenchmarkSearch_partials_stdlib-10      	    5392	    204246 ns/op	   13118 B/op	     298 allocs/op
 --- BENCH: BenchmarkSearch_partials_stdlib-10
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkSearch_partials_stdlib1556305011/001/index.sqlite3
-    search_test.go:160: num matches:  1
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkSearch_partials_stdlib665345391/002/index.sqlite3
-    search_test.go:160: num matches:  1
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkSearch_partials_stdlib2852334416/003/index.sqlite3
-    search_test.go:160: num matches:  1
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkSearch_partials_stdlib3146902099/004/index.sqlite3
-    search_test.go:160: num matches:  2
-BenchmarkSearch_exact_stdlib-10         	    3376	    319100 ns/op	    5284 B/op	     117 allocs/op
+    search_test.go:166: num matches:  1
+    search_test.go:166: num matches:  2
+    search_test.go:166: num matches:  1
+BenchmarkSearch_exact_stdlib-10         	   16011	     74859 ns/op	    2585 B/op	      61 allocs/op
 --- BENCH: BenchmarkSearch_exact_stdlib-10
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkSearch_exact_stdlib481662148/001/index.sqlite3
-    search_test.go:160: num matches:  1
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkSearch_exact_stdlib195883349/002/index.sqlite3
-    search_test.go:160: num matches:  1
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkSearch_exact_stdlib739461883/003/index.sqlite3
-    search_test.go:160: num matches:  1
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkSearch_exact_stdlib271455810/004/index.sqlite3
-    search_test.go:160: num matches:  1
-BenchmarkRandomPartialSearchPath-10     	    4603	    232167 ns/op	    1299 B/op	      31 allocs/op
+    search_test.go:166: num matches:  1
+    search_test.go:166: num matches:  1
+    search_test.go:166: num matches:  1
+    search_test.go:166: num matches:  1
+BenchmarkRandomPartialSearchPath-10     	 1260944	       951.8 ns/op	      79 B/op	       6 allocs/op
 --- BENCH: BenchmarkRandomPartialSearchPath-10
-    search_test.go:210: path:  crypto/tls
-    search_test.go:210: path:  auth
-    search_test.go:210: path:  cmd/compile/internal/reflectdata
-    search_test.go:210: path:  test
-BenchmarkLoadSync_stdlib-10             	    6460	    186324 ns/op	   23696 B/op	     342 allocs/op
+    search_test.go:224: path:  comment
+    search_test.go:224: path:  version
+    search_test.go:224: path:  importer
+    search_test.go:224: path:  pkgpath
+    search_test.go:224: path:  internal/obj/loong64
+BenchmarkLoadSync_stdlib-10             	    4188	    251536 ns/op	   30274 B/op	     520 allocs/op
 --- BENCH: BenchmarkLoadSync_stdlib-10
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadSync_stdlib1410839628/001/index.sqlite3
-    sync_test.go:43: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadSync_stdlib1632628432/002/index.sqlite3
-    sync_test.go:43: index sync {CreatedAt:2023-02-09 13:28:29 +0000 UTC UpdatedAt:2023-02-09 13:28:29 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadSync_stdlib1058199252/003/index.sqlite3
-    sync_test.go:43: index sync {CreatedAt:2023-02-09 13:28:29 +0000 UTC UpdatedAt:2023-02-09 13:28:29 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadSync_stdlib3270361696/004/index.sqlite3
-    sync_test.go:43: index sync {CreatedAt:2023-02-09 13:28:30 +0000 UTC UpdatedAt:2023-02-09 13:28:30 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadSync_stdlib2183669409/005/index.sqlite3
-    sync_test.go:43: index sync {CreatedAt:2023-02-09 13:28:31 +0000 UTC UpdatedAt:2023-02-09 13:28:31 +0000 UTC BuildRevision:}
-	... [output truncated]
-BenchmarkLoadSync_InMemory_stdlib-10    	      34	  32891722 ns/op	 3999224 B/op	   55832 allocs/op
+    sync_test.go:44: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
+    sync_test.go:44: index sync {CreatedAt:2023-02-09 15:11:49 +0000 UTC UpdatedAt:2023-02-09 15:11:49 +0000 UTC BuildRevision:}
+    sync_test.go:44: index sync {CreatedAt:2023-02-09 15:11:49 +0000 UTC UpdatedAt:2023-02-09 15:11:49 +0000 UTC BuildRevision:}
+    sync_test.go:44: index sync {CreatedAt:2023-02-09 15:11:49 +0000 UTC UpdatedAt:2023-02-09 15:11:50 +0000 UTC BuildRevision:}
+BenchmarkLoadSync_InMemory_stdlib-10    	      36	  31950501 ns/op	 4000534 B/op	   55841 allocs/op
 --- BENCH: BenchmarkLoadSync_InMemory_stdlib-10
     sync_test.go:63: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
     sync_test.go:63: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
-BenchmarkLoadReSync_stdlib-10           	    4803	    245204 ns/op	   29266 B/op	     504 allocs/op
+BenchmarkLoadReSync_stdlib-10           	    4773	    243717 ns/op	   29263 B/op	     504 allocs/op
 --- BENCH: BenchmarkLoadReSync_stdlib-10
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadReSync_stdlib3350538034/001/index.sqlite3
-    sync_test.go:90: index sync {CreatedAt:2023-02-09 13:28:33 +0000 UTC UpdatedAt:2023-02-09 13:28:33 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadReSync_stdlib464174825/002/index.sqlite3
-    sync_test.go:90: index sync {CreatedAt:2023-02-09 13:28:33 +0000 UTC UpdatedAt:2023-02-09 13:28:33 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadReSync_stdlib3180220712/003/index.sqlite3
-    sync_test.go:90: index sync {CreatedAt:2023-02-09 13:28:33 +0000 UTC UpdatedAt:2023-02-09 13:28:34 +0000 UTC BuildRevision:}
-BenchmarkLoadForceSync_stdlib-10        	      58	  19778801 ns/op	 3448582 B/op	   36649 allocs/op
+    sync_test.go:90: index sync {CreatedAt:2023-02-09 15:11:51 +0000 UTC UpdatedAt:2023-02-09 15:11:51 +0000 UTC BuildRevision:}
+    sync_test.go:90: index sync {CreatedAt:2023-02-09 15:11:51 +0000 UTC UpdatedAt:2023-02-09 15:11:51 +0000 UTC BuildRevision:}
+    sync_test.go:90: index sync {CreatedAt:2023-02-09 15:11:51 +0000 UTC UpdatedAt:2023-02-09 15:11:53 +0000 UTC BuildRevision:}
+BenchmarkLoadForceSync_stdlib-10        	      60	  19369064 ns/op	 3449584 B/op	   36651 allocs/op
 --- BENCH: BenchmarkLoadForceSync_stdlib-10
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadForceSync_stdlib3789305247/001/index.sqlite3
     sync_test.go:117: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadForceSync_stdlib569485662/002/index.sqlite3
     sync_test.go:117: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
-BenchmarkLoadSkipSync_stdlib-10         	   14956	     80641 ns/op	   19609 B/op	     244 allocs/op
+BenchmarkLoadSkipSync_stdlib-10         	   15294	     78786 ns/op	   19617 B/op	     244 allocs/op
 --- BENCH: BenchmarkLoadSkipSync_stdlib-10
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadSkipSync_stdlib1718371487/001/index.sqlite3
     sync_test.go:144: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadSkipSync_stdlib2430788409/002/index.sqlite3
     sync_test.go:144: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadSkipSync_stdlib4193487882/003/index.sqlite3
     sync_test.go:144: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
-    sync_test.go:20: db path:  file:/var/folders/hn/1jktrdzx1p15nnwmrmjd7v1c0000gn/T/BenchmarkLoadSkipSync_stdlib2277330274/004/index.sqlite3
     sync_test.go:144: index sync {CreatedAt:0001-01-01 00:00:00 +0000 UTC UpdatedAt:0001-01-01 00:00:00 +0000 UTC BuildRevision:}
 PASS
-ok  	aslevy.com/go-doc/internal/index	14.186s
+ok  	aslevy.com/go-doc/internal/index	13.355s

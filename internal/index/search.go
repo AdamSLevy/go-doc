@@ -78,8 +78,8 @@ func (idx *Index) searchRows(ctx context.Context, path string, opts ...SearchOpt
 	if err != nil {
 		return nil, err
 	}
-	dlogSearch.Printf("query: \n%s", query)
-	dlogSearch.Printf("params: \n%+v", params)
+	// dlogSearch.Printf("query: \n%s", query)
+	// dlogSearch.Printf("params: \n%+v", params)
 	return idx.db.QueryContext(ctx, query, params...)
 }
 

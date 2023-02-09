@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	_ "embed"
 	"fmt"
 	"runtime/debug"
@@ -12,38 +13,32 @@ import (
 	"aslevy.com/go-doc/internal/godoc"
 )
 
-type sqlRow interface {
-	Scan(dest ...any) error
-}
-
-type sync struct {
+type metadata struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
 	BuildRevision string
 }
 
-func (idx *Index) selectSync(ctx context.Context) error {
-	const _syncSelect = `
-SELECT createdAt, updatedAt, buildRevision FROM sync WHERE rowid=1;
+func (idx *Index) selectMetadata(ctx context.Context) error {
+	const query = `
+SELECT createdAt, updatedAt, buildRevision FROM metadata WHERE rowid=1;
 `
-	return idx.db.QueryRowContext(ctx, _syncSelect).Scan(&idx.CreatedAt, &idx.UpdatedAt, &idx.BuildRevision)
+	return idx.db.QueryRowContext(ctx, query).
+		Scan(&idx.CreatedAt, &idx.UpdatedAt, &idx.BuildRevision)
 }
 
-func (idx *Index) upsertSync(ctx context.Context) error {
-	const _syncUpsert = `
-INSERT INTO sync(rowid, buildRevision) VALUES (1, ?)
+func (idx *Index) upsertMetadata(ctx context.Context) error {
+	const query = `
+INSERT INTO metadata(rowid, buildRevision) VALUES (1, ?)
   ON CONFLICT(rowid) DO 
     UPDATE SET 
       updatedAt=CURRENT_TIMESTAMP, 
       buildRevision=excluded.buildRevision
     WHERE rowid=1;
 `
-	_, err := idx.tx.ExecContext(ctx, _syncUpsert, getBuildRevision())
-	if err != nil {
-		return fmt.Errorf("failed to upsert sync: %w", err)
-	}
-	return nil
+	_, err := idx.tx.ExecContext(ctx, query, getBuildRevision())
+	return err
 }
 
 var buildRevision string
@@ -109,6 +104,10 @@ SELECT rowid, importPath, dir, class, vendor FROM module WHERE importPath=?;
 func scanModule(row sqlRow) (module, error) {
 	var mod module
 	return mod, row.Scan(&mod.ID, &mod.ImportPath, &mod.Dir, &mod.Class, &mod.Vendor)
+}
+
+type sqlRow interface {
+	Scan(dest ...any) error
 }
 
 func (idx *Index) insertModule(ctx context.Context, pkgDir godoc.PackageDir, class class, vendor bool) (int64, error) {
@@ -256,7 +255,36 @@ func (idx *Index) applySchema(ctx context.Context) error {
 			return fmt.Errorf("failed to apply schema version %d: %w", i+1, err)
 		}
 	}
+
 	return nil
+}
+
+type sqlTx struct {
+	*sql.Tx
+	stmts map[string]*sql.Stmt
+}
+
+func newSqlTx(tx *sql.Tx) *sqlTx {
+	return &sqlTx{
+		Tx:    tx,
+		stmts: make(map[string]*sql.Stmt),
+	}
+}
+
+func (tx *sqlTx) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	stmt, ok := tx.stmts[query]
+	if ok {
+		return stmt, nil
+	}
+	stmt, err := tx.Tx.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	tx.stmts[query] = stmt
+	return stmt, nil
+}
+func (tx *sqlTx) Prepare(query string) (*sql.Stmt, error) {
+	return tx.PrepareContext(context.Background(), query)
 }
 
 //go:embed schema.sql

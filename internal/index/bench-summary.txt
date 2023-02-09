@@ -1,9 +1,8 @@
-BenchmarkDirs-10                        	    2976	    355957 ns/op	    7229 B/op	     147 allocs/op
-BenchmarkLoadForceSync_stdlib-10        	      58	  19778801 ns/op	 3448582 B/op	   36649 allocs/op
-BenchmarkLoadReSync_stdlib-10           	    4803	    245204 ns/op	   29266 B/op	     504 allocs/op
-BenchmarkLoadSkipSync_stdlib-10         	   14956	     80641 ns/op	   19609 B/op	     244 allocs/op
-BenchmarkLoadSync_InMemory_stdlib-10    	      34	  32891722 ns/op	 3999224 B/op	   55832 allocs/op
-BenchmarkLoadSync_stdlib-10             	    6460	    186324 ns/op	   23696 B/op	     342 allocs/op
-BenchmarkRandomPartialSearchPath-10     	    4603	    232167 ns/op	    1299 B/op	      31 allocs/op
-BenchmarkSearch_exact_stdlib-10         	    3376	    319100 ns/op	    5284 B/op	     117 allocs/op
-BenchmarkSearch_partials_stdlib-10      	    2433	    455069 ns/op	   16262 B/op	     362 allocs/op
+BenchmarkLoadForceSync_stdlib-10        	      60	  19369064 ns/op	 3449584 B/op	   36651 allocs/op
+BenchmarkLoadReSync_stdlib-10           	    4773	    243717 ns/op	   29263 B/op	     504 allocs/op
+BenchmarkLoadSkipSync_stdlib-10         	   15294	     78786 ns/op	   19617 B/op	     244 allocs/op
+BenchmarkLoadSync_InMemory_stdlib-10    	      36	  31950501 ns/op	 4000534 B/op	   55841 allocs/op
+BenchmarkLoadSync_stdlib-10             	    4188	    251536 ns/op	   30274 B/op	     520 allocs/op
+BenchmarkRandomPartialSearchPath-10     	 1260944	       951.8 ns/op	      79 B/op	       6 allocs/op
+BenchmarkSearch_exact_stdlib-10         	   16011	     74859 ns/op	    2585 B/op	      61 allocs/op
+BenchmarkSearch_partials_stdlib-10      	    5392	    204246 ns/op	   13118 B/op	     298 allocs/op
