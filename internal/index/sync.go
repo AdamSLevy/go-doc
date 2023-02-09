@@ -129,7 +129,7 @@ func (idx *Index) syncModule(ctx context.Context, root godoc.PackageDir, class i
 	}
 	modIDs = append(modIDs, modID)
 
-	if !needsSync {
+	if !needsSync && idx.options.mode != ModeForceSync {
 		dlogSync.Printf("code root %q is already synced", root.ImportPath)
 		return modIDs, nil
 	}

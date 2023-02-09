@@ -26,11 +26,14 @@ type searchTest struct {
 }
 
 func (test indexTest) run(t *testing.T) {
+	require := require.New(t)
 	t.Helper()
 	ctx := context.Background()
-	const dbPath = ":memory:"
-	pkgs, err := Load(ctx, dbPath, test.mods, WithNoProgressBar())
-	require.NoError(t, err)
+	pkgs, err := Load(ctx, dbMem, test.mods, WithNoProgressBar())
+	require.NoError(err)
+	t.Cleanup(func() {
+		require.NoError(pkgs.Close())
+	})
 	for _, searchTest := range test.searchTests {
 		searchTest.run(t, pkgs)
 	}
@@ -133,7 +136,6 @@ func benchmarkSearch_stdlib(b *testing.B, partial bool) {
 	require := require.New(b)
 
 	ctx := context.Background()
-	dbPath := dbMem
 	codeRoots := stdlibCodeRoots()
 	opts := WithOptions(WithNoProgressBar())
 
@@ -146,8 +148,9 @@ func benchmarkSearch_stdlib(b *testing.B, partial bool) {
 
 	var pkgIdx *Index
 	benchmark.Run(b, func() {
-		pkgIdx, err = Load(ctx, dbPath, codeRoots, opts)
+		pkgIdx, err = Load(ctx, dbFilePath(b), codeRoots, opts)
 		require.NoError(err)
+		b.Cleanup(func() { require.NoError(pkgIdx.Close()) })
 	}, func() {
 		path, err := pkgIdx.randomPartial()
 		require.NoError(err)
@@ -161,12 +164,12 @@ func TestRandomPartialSearchPath(t *testing.T) {
 	require := require.New(t)
 
 	ctx := context.Background()
-	dbPath := dbMem
 	codeRoots := stdlibCodeRoots()
 	opts := WithOptions(WithNoProgressBar())
 
-	pkgIdx, err := Load(ctx, dbPath, codeRoots, opts)
+	pkgIdx, err := Load(ctx, dbFilePath(t), codeRoots, opts)
 	require.NoError(err)
+	t.Cleanup(func() { require.NoError(pkgIdx.Close()) })
 
 	paths := make(map[string]struct{})
 	var duplicates int
@@ -188,20 +191,21 @@ func TestRandomPartialSearchPath(t *testing.T) {
 }
 
 func BenchmarkRandomPartialSearchPath(b *testing.B) {
+	require := require.New(b)
 	var path string
 	var pkgIdx *Index
 	var err error
 	benchmark.Run(b, func() {
 		ctx := context.Background()
-		dbPath := dbMem
 		codeRoots := stdlibCodeRoots()
 		opts := WithOptions(WithNoProgressBar())
 
-		pkgIdx, err = Load(ctx, dbPath, codeRoots, opts)
-		require.NoError(b, err)
+		pkgIdx, err = Load(ctx, dbMem, codeRoots, opts)
+		require.NoError(err)
+		b.Cleanup(func() { require.NoError(pkgIdx.Close()) })
 	}, func() {
 		path, err = pkgIdx.randomPartial()
-		require.NoError(b, err)
+		require.NoError(err)
 	})
 	b.Log("path: ", path)
 }

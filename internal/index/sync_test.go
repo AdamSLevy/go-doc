@@ -9,38 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	dbMem  = ":memory:"
-	dbFile = "file:"
-	dbName = "index.sqlite3"
-)
+const dbMem = ":memory:"
 
-func dbFilePath(dir string) string { return dbFile + filepath.Join(dir, dbName) }
+func dbFilePath(tb testing.TB) string {
+	const (
+		dbFile = "file:"
+		dbName = "index.sqlite3"
+	)
+	path := dbFile + filepath.Join(tb.TempDir(), dbName)
+	tb.Log("db path: ", path)
+	return path
+}
 
+// BenchmarkLoadSync_stdlib benchmarks the time it takes to sync an index of
+// the stdlib from scratch and write it to the filesystem.
 func BenchmarkLoadSync_stdlib(b *testing.B) {
 	require := require.New(b)
 
 	ctx := context.Background()
-	codeRoots := stdlibCodeRoots()
-	opts := WithOptions(WithNoProgressBar())
-
-	var idx *Index
-	var err error
-	benchmark.Run(b, nil, func() {
-		idx, err = Load(ctx, dbFilePath(b.TempDir()), codeRoots, opts)
-		require.NoError(err)
-		require.NoError(idx.waitSync())
-		require.NoError(idx.Close())
-	})
-
-	b.Logf("index sync %+v", idx.sync)
-}
-
-func BenchmarkLoadSync_InMemory_stdlib(b *testing.B) {
-	require := require.New(b)
-
-	ctx := context.Background()
-	dbPath := dbMem
+	dbPath := dbFilePath(b)
 	codeRoots := stdlibCodeRoots()
 	opts := WithOptions(WithNoProgressBar())
 
@@ -52,14 +39,37 @@ func BenchmarkLoadSync_InMemory_stdlib(b *testing.B) {
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
 	})
+
 	b.Logf("index sync %+v", idx.sync)
 }
 
+// BenchmarkLoadSync_InMemory_stdlib is like BenchmarkLoadSync_stdlib, but uses
+// an in memory database instead of the filesystem.
+func BenchmarkLoadSync_InMemory_stdlib(b *testing.B) {
+	require := require.New(b)
+
+	ctx := context.Background()
+	codeRoots := stdlibCodeRoots()
+	opts := WithOptions(WithNoProgressBar())
+
+	var idx *Index
+	var err error
+	benchmark.Run(b, nil, func() {
+		idx, err = Load(ctx, dbMem, codeRoots, opts)
+		require.NoError(err)
+		require.NoError(idx.waitSync())
+		require.NoError(idx.Close())
+	})
+	b.Logf("index sync %+v", idx.sync)
+}
+
+// BenchmarkLoadReSync_stdlib benchmarks the time it takes to re-sync an
+// existing index of the stdlib when it has not changed.
 func BenchmarkLoadReSync_stdlib(b *testing.B) {
 	require := require.New(b)
 
 	ctx := context.Background()
-	dbPath := dbFilePath(b.TempDir())
+	dbPath := dbFilePath(b)
 	codeRoots := stdlibCodeRoots()
 	opts := WithOptions(WithNoProgressBar(), WithResyncInterval(0))
 
@@ -80,13 +90,42 @@ func BenchmarkLoadReSync_stdlib(b *testing.B) {
 	b.Logf("index sync %+v", idx.sync)
 }
 
-func BenchmarkLoadNoSync_stdlib(b *testing.B) {
+// BenchmarkLoadForceSync_stdlib benchmarks the time it takes to re-sync an
+// existing index of the stdlib when it has not changed.
+func BenchmarkLoadForceSync_stdlib(b *testing.B) {
 	require := require.New(b)
 
 	ctx := context.Background()
-	dbPath := dbFilePath(b.TempDir())
+	dbPath := dbFilePath(b)
 	codeRoots := stdlibCodeRoots()
-	opts := WithOptions(WithNoProgressBar())
+	opts := WithOptions(WithNoProgressBar(), WithForceSync())
+
+	var idx *Index
+	var err error
+	benchmark.Run(b, func() {
+		// sync initially prior to running the benchmark
+		idx, err = Load(ctx, dbPath, codeRoots, opts)
+		require.NoError(err)
+		require.NoError(idx.waitSync())
+		require.NoError(idx.Close())
+	}, func() {
+		idx, err = Load(ctx, dbPath, codeRoots, opts)
+		require.NoError(err)
+		require.NoError(idx.waitSync())
+		require.NoError(idx.Close())
+	})
+	b.Logf("index sync %+v", idx.sync)
+}
+
+// BenchmarkLoadSkipSync_stdlib benchmarks the time it takes to load an
+// existing index of the stdlib without syncing.
+func BenchmarkLoadSkipSync_stdlib(b *testing.B) {
+	require := require.New(b)
+
+	ctx := context.Background()
+	dbPath := dbFilePath(b)
+	codeRoots := stdlibCodeRoots()
+	opts := WithOptions(WithNoProgressBar(), WithSkipSync())
 
 	var idx *Index
 	var err error
