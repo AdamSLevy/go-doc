@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"go/build"
 	"log"
 	"os"
 	"path"
@@ -234,6 +235,11 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 
 func (idx *Index) syncPackage(ctx context.Context, modID int64, root, pkg godoc.PackageDir) (int64, error) {
 	dlogSync.Printf("syncing package %q in %q", pkg.ImportPath, pkg.Dir)
+	if _, err := build.ImportDir(pkg.Dir, 0); err != nil {
+		// Not a valid Go package, so ignore it.
+		return -1, nil
+	}
+
 	relativePath := strings.TrimPrefix(pkg.ImportPath[len(root.ImportPath):], "/")
 	pkgID, err := idx.selectPackageID(ctx, modID, relativePath)
 	if ignoreErrNoRows(err) != nil {

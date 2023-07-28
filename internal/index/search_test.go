@@ -105,7 +105,7 @@ var indexTests = []indexTest{{
 	}, {
 		paths:   []string{"a"},
 		partial: true,
-		results: []string{"crypto/aes", "encoding/ascii85", "encoding/asn1", "go/ast", "hash/adler32", "internal/abi", "runtime/asan", "sync/atomic", "runtime/internal/atomic", "net/http/internal/ascii", "cmd/addr2line", "cmd/api", "cmd/asm", "cmd/internal/archive", "cmd/asm/internal/arch", "cmd/asm/internal/asm", "cmd/compile/internal/abi", "cmd/compile/internal/abt", "cmd/compile/internal/amd64", "cmd/compile/internal/arm", "cmd/compile/internal/arm64", "cmd/go/internal/auth", "cmd/internal/obj/arm", "cmd/internal/obj/arm64", "cmd/link/internal/amd64", "cmd/link/internal/arm", "cmd/link/internal/arm64", "archive/tar", "archive/zip", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
+		results: []string{"crypto/aes", "encoding/ascii85", "encoding/asn1", "go/ast", "hash/adler32", "internal/abi", "sync/atomic", "crypto/internal/alias", "runtime/internal/atomic", "net/http/internal/ascii", "cmd/addr2line", "cmd/api", "cmd/asm", "cmd/internal/archive", "cmd/asm/internal/arch", "cmd/asm/internal/asm", "cmd/compile/internal/abi", "cmd/compile/internal/abt", "cmd/compile/internal/amd64", "cmd/compile/internal/arm", "cmd/compile/internal/arm64", "cmd/go/internal/auth", "cmd/internal/obj/arm", "cmd/internal/obj/arm64", "cmd/link/internal/amd64", "cmd/link/internal/arm", "cmd/link/internal/arm64", "archive/tar", "archive/zip", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
 	}, {
 		paths:   []string{"c/a"},
 		partial: true,
@@ -113,7 +113,7 @@ var indexTests = []indexTest{{
 	}, {
 		paths:   []string{"as"},
 		partial: true,
-		results: []string{"encoding/ascii85", "encoding/asn1", "go/ast", "runtime/asan", "net/http/internal/ascii", "cmd/asm", "cmd/asm/internal/asm", "cmd/asm/internal/arch", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
+		results: []string{"encoding/ascii85", "encoding/asn1", "go/ast", "net/http/internal/ascii", "cmd/asm", "cmd/asm/internal/asm", "cmd/asm/internal/arch", "cmd/asm/internal/flags", "cmd/asm/internal/lex"},
 	}},
 }}
 
