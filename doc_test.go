@@ -1008,7 +1008,7 @@ func TestDotSlashLookup(t *testing.T) {
 	if err := os.Chdir(filepath.Join(buildCtx.GOROOT, "src", "text")); err != nil {
 		t.Fatal(err)
 	}
-	var b bytes.Buffer
+	var b strings.Builder
 	var flagSet flag.FlagSet
 	err = do(&b, &flagSet, []string{"./template"})
 	if err != nil {
@@ -1026,7 +1026,7 @@ func TestDotSlashLookup(t *testing.T) {
 // when there should be no output at all. Issue 37969.
 func TestNoPackageClauseWhenNoMatch(t *testing.T) {
 	maybeSkip(t)
-	var b bytes.Buffer
+	var b strings.Builder
 	var flagSet flag.FlagSet
 	err := do(&b, &flagSet, []string{"template.ZZZ"})
 	// Expect an error.
