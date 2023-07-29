@@ -3,14 +3,14 @@
 all: go-doc
 
 go-doc:
-	go build -o bin/go-doc
+	go build -pgo auto -o bin/go-doc
 
 clean:
 	rm bin/go-doc
 
 install:
 	@echo "Installing go-doc..."
-	go install
+	go install -pgo auto
 	@echo "Installing Zsh completion..."
 	go-doc -install-completion
 	@echo "done."
@@ -19,7 +19,7 @@ licenses.csv: go.mod go.sum
 	go-licenses csv . | tee licenses.csv
 
 internal/index/benchmarks.txt: internal/index/*.go
-	go test -bench=. -benchmem -run NOTHING ./internal/index > internal/index/benchmarks.txt
+	go test -pgo auto -bench=. -benchmem -run NOTHING ./internal/index > internal/index/benchmarks.txt
 
 internal/index/bench-summary.txt: internal/index/benchmarks.txt
 	grep '^Benchmark' internal/index/benchmarks.txt | sort > internal/index/bench-summary.txt

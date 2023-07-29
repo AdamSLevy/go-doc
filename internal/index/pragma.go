@@ -10,29 +10,43 @@ import (
 //
 // See https://www.sqlite.org/fileformat.html#application_id
 const (
-	sqliteApplicationID int32 = 0x0_90_D0C_90 // GO DOC GO
-	pragmaApplicationID       = "application_id"
+	sqliteApplicationID uint32 = 0x0_90_D0C_90 // GO DOC GO
+	pragmaApplicationID        = "application_id"
 )
 
-func (idx *Index) checkSetApplicationID(ctx context.Context) error {
-	var appID int32
-	if err := idx.readPragma(ctx, pragmaApplicationID, &appID); err != nil {
+func (idx *Index) assertApplicationID(ctx context.Context) error {
+	appID, err := idx.getApplicationID(ctx)
+	if err != nil {
 		return err
 	}
-	if appID == 0 {
-		if err := idx.setPragma(ctx, pragmaApplicationID, sqliteApplicationID); err != nil {
-			return err
-		}
-	} else if appID != sqliteApplicationID {
-		return fmt.Errorf("database is not for this application")
+	if appID == 0 { // app ID not set
+		return idx.setApplicationID(ctx)
+	}
+	if appID != sqliteApplicationID {
+		return fmt.Errorf("unrecognized database")
 	}
 	return nil
 }
+func (idx *Index) getApplicationID(ctx context.Context) (appID uint32, _ error) {
+	return appID, idx.getPragma(ctx, pragmaApplicationID, &appID)
+}
+func (idx *Index) setApplicationID(ctx context.Context) error {
+	return idx.setPragma(ctx, pragmaApplicationID, sqliteApplicationID)
+}
 
-func (idx *Index) schemaVersion(ctx context.Context) (int, error) {
+const pragmaUserVersion = "user_version"
+
+func (idx *Index) getUserVersion(ctx context.Context) (userVersion uint32, _ error) {
+	return userVersion, idx.getPragma(ctx, pragmaUserVersion, &userVersion)
+}
+func (idx *Index) setUserVersion(ctx context.Context, userVersion uint32) error {
+	return idx.setPragma(ctx, pragmaUserVersion, userVersion)
+}
+
+func (idx *Index) getSchemaVersion(ctx context.Context) (int, error) {
 	const pragmaSchemaVersion = "schema_version"
 	var schemaVersion int
-	if err := idx.readPragma(ctx, pragmaSchemaVersion, &schemaVersion); err != nil {
+	if err := idx.getPragma(ctx, pragmaSchemaVersion, &schemaVersion); err != nil {
 		return 0, err
 	}
 	return schemaVersion, nil
@@ -43,7 +57,7 @@ func (idx *Index) enableForeignKeys(ctx context.Context) error {
 	return idx.setPragma(ctx, pragmaForeignKeys, "on")
 }
 
-func (idx *Index) readPragma(ctx context.Context, key string, val any) error {
+func (idx *Index) getPragma(ctx context.Context, key string, val any) error {
 	query := fmt.Sprintf(`PRAGMA %s;`, key)
 	err := idx.db.QueryRowContext(ctx, query).Scan(val)
 	if err != nil {

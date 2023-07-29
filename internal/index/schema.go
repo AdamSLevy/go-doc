@@ -1,55 +1,78 @@
+// This file along with schema.sql define the schema for the database.
+//
+// For each SQL table there is a corresponding Go type and Index methods for
+// selecting, inserting, or updating rows.
+
 package index
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"hash/crc32"
 	"runtime/debug"
 	"time"
 
 	"aslevy.com/go-doc/internal/godoc"
 )
 
+// _schema is the SQL schema for the index database.
+//
+//go:embed schema.sql
+var _schema []byte
+
+var schemaCRC = func() uint32 {
+	crc := crc32.NewIEEE()
+	crc.Write(_schema)
+	return crc.Sum32()
+}()
+
 type metadata struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
 	BuildRevision string
+	GoVersion     string
 }
 
-func (idx *Index) selectMetadata(ctx context.Context) error {
+func (idx *Index) selectMetadata(ctx context.Context) (metadata, error) {
 	const query = `
-SELECT createdAt, updatedAt, buildRevision FROM metadata WHERE rowid=1;
+SELECT createdAt, updatedAt, buildRevision, goVersion FROM metadata WHERE rowid=1;
 `
-	return idx.db.QueryRowContext(ctx, query).
-		Scan(&idx.CreatedAt, &idx.UpdatedAt, &idx.BuildRevision)
+	return scanMetadata(idx.db.QueryRowContext(ctx, query))
+}
+func scanMetadata(row sqlRow) (metadata, error) {
+	var meta metadata
+	return meta, row.Scan(
+		&meta.CreatedAt,
+		&meta.UpdatedAt,
+		&meta.BuildRevision,
+		&meta.GoVersion,
+	)
 }
 
 func (idx *Index) upsertMetadata(ctx context.Context) error {
 	const query = `
-INSERT INTO metadata(rowid, buildRevision) VALUES (1, ?)
+INSERT INTO metadata(rowid, buildRevision, goVersion) VALUES (1, ?, ?)
   ON CONFLICT(rowid) DO 
     UPDATE SET 
       updatedAt=CURRENT_TIMESTAMP, 
-      buildRevision=excluded.buildRevision
-    WHERE rowid=1;
+      buildRevision=excluded.buildRevision,
+      goVersion=excluded.goVersion;
 `
-	_, err := idx.tx.ExecContext(ctx, query, getBuildRevision())
-	return err
+	if _, err := idx.tx.ExecContext(ctx, query, buildRevision, goVersion); err != nil {
+		return fmt.Errorf("failed to upsert metadata: %w", err)
+	}
+	return nil
 }
 
-var buildRevision string
-
-func getBuildRevision() string {
-	if buildRevision != "" {
-		return buildRevision
-	}
+var buildRevision, goVersion string = func() (string, string) {
+	var buildRevision string
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
-		return ""
+		panic("debug.ReadBuildInfo() failed")
 	}
 	for _, s := range info.Settings {
 		if s.Key == "vcs.revision" {
@@ -57,8 +80,8 @@ func getBuildRevision() string {
 			break
 		}
 	}
-	return buildRevision
-}
+	return buildRevision, info.GoVersion
+}()
 
 type class = int
 
@@ -177,8 +200,7 @@ SELECT rowid FROM package WHERE moduleId=? AND relativePath=?;
 		return -1, err
 	}
 	var id int64
-	err = stmt.QueryRowContext(ctx, modID, relativePath).Scan(&id)
-	return id, err
+	return id, stmt.QueryRowContext(ctx, modID, relativePath).Scan(&id)
 }
 
 func (idx *Index) insertPackage(ctx context.Context, modID int64, relativePath string) (int64, error) {
@@ -201,7 +223,10 @@ func (idx *Index) prunePackages(ctx context.Context, modID int64, keep []int64) 
 DELETE FROM package WHERE moduleId=? AND rowid NOT IN (%s);
 `, placeholders(len(keep)))
 	_, err := idx.tx.ExecContext(ctx, query, prunePackagesArgs(modID, keep)...)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to prune packages: %w", err)
+	}
+	return nil
 }
 func prunePackagesArgs(modID int64, keep []int64) []any {
 	args := make([]any, 0, len(keep)+1)
@@ -234,31 +259,6 @@ INSERT INTO partial(packageId, parts) VALUES (?, ?);
 	return res.LastInsertId()
 }
 
-func (idx *Index) applySchema(ctx context.Context) error {
-	schemaVersion, err := idx.schemaVersion(ctx)
-	if err != nil {
-		return err
-	}
-
-	schema := schema()
-	if schemaVersion > len(schema) {
-		return fmt.Errorf("database schema version (%d) higher than supported (<=%d)", schemaVersion, len(schema))
-	}
-	dlog.Printf("schema version: %d of %d", schemaVersion, len(schema))
-	if schemaVersion == len(schema) {
-		return nil
-	}
-	// Apply all schema updates, which should be idempotent.
-	for i, stmt := range schema {
-		_, err := idx.db.ExecContext(ctx, stmt)
-		if err != nil {
-			return fmt.Errorf("failed to apply schema version %d: %w", i+1, err)
-		}
-	}
-
-	return nil
-}
-
 type sqlTx struct {
 	*sql.Tx
 	stmts map[string]*sql.Stmt
@@ -285,48 +285,4 @@ func (tx *sqlTx) PrepareContext(ctx context.Context, query string) (*sql.Stmt, e
 }
 func (tx *sqlTx) Prepare(query string) (*sql.Stmt, error) {
 	return tx.PrepareContext(context.Background(), query)
-}
-
-//go:embed schema.sql
-var _schema []byte
-
-func schema() (queries []string) {
-	const numQueries = 7 // number of queries in schema.sql
-	queries = make([]string, 0, numQueries)
-	scanner := schemaScanner(_schema)
-	for scanner.Scan() {
-		queries = append(queries, scanner.Text())
-	}
-	if err := scanner.Err(); err != nil {
-		panic(fmt.Errorf("failed to scan schema.sql: %w", err))
-	}
-	return
-}
-func schemaScanner(data []byte) *bufio.Scanner {
-	s := bufio.NewScanner(bytes.NewReader(data))
-	s.Split(sqlSplit)
-	return s
-}
-func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	defer func() {
-		// Trim the token of any leading or trailing whitespace.
-		token = bytes.TrimSpace(token)
-		if len(token) == 0 {
-			// Ensure we don't return an empty token.
-			token = nil
-		}
-	}()
-
-	semiColon := bytes.Index(data, []byte(";"))
-	if semiColon == -1 {
-		// No semi-colon yet...
-		if atEOF {
-			// That's everything...
-			return len(data), data, nil
-		}
-		// Ask for more data so we can find the EOL.
-		return 0, nil, nil
-	}
-	// We found a semi-colon...
-	return semiColon + 1, data[:semiColon+1], nil
 }

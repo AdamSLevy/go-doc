@@ -25,7 +25,7 @@ func packageIndex() *index.Index {
 	}
 	pkgIdx, err := index.Load(context.Background(), path, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
 	if err != nil {
-		dlog.Printf("index.UpdateOrCreate: %v", err)
+		dlog.Printf("index.Load: %v", err)
 	}
 	return pkgIdx
 }

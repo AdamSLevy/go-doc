@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"go/build"
 	"log"
 	"os"
 	"path"
@@ -25,12 +24,20 @@ func (idx *Index) needsSync(ctx context.Context) (bool, error) {
 	case ModeForceSync:
 		return true, nil
 	}
-	if err := idx.selectMetadata(ctx); ignoreErrNoRows(err) != nil {
+	var err error
+	idx.metadata, err = idx.selectMetadata(ctx)
+	if ignoreErrNoRows(err) != nil {
 		return false, err
 	}
-	dlogSync.Printf("created at: %v", idx.metadata.CreatedAt.Local())
-	dlogSync.Printf("updated at: %v", idx.metadata.UpdatedAt.Local())
-	return time.Since(idx.metadata.UpdatedAt) > idx.options.resyncInterval, nil
+
+	if idx.metadata.BuildRevision != buildRevision ||
+		idx.metadata.GoVersion != goVersion {
+		return true, nil
+	}
+
+	dlogSync.Printf("created at: %v", idx.CreatedAt.Local())
+	dlogSync.Printf("updated at: %v", idx.UpdatedAt.Local())
+	return time.Since(idx.UpdatedAt) > idx.options.resyncInterval, nil
 }
 func ignoreErrNoRows(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
@@ -41,8 +48,11 @@ func ignoreErrNoRows(err error) error {
 
 func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDir) (retErr error) {
 	needsSync, err := idx.needsSync(ctx)
-	if err != nil || !needsSync {
+	if err != nil {
 		return err
+	}
+	if !needsSync {
+		return nil
 	}
 
 	dlogSync.Println("syncing code roots...")
@@ -149,18 +159,17 @@ func (idx *Index) upsertModule(ctx context.Context, root godoc.PackageDir, class
 		return mod.ID, false, nil
 	}
 
-	modID = mod.ID
-	if modID < 1 {
-		modID, err = idx.insertModule(ctx, root, class, vendor)
+	if mod.ID < 1 {
+		mod.ID, err = idx.insertModule(ctx, root, class, vendor)
 		if err != nil {
 			return -1, false, err
 		}
 	} else {
-		if err := idx.updateModule(ctx, modID, root, class, vendor); err != nil {
+		if err := idx.updateModule(ctx, mod.ID, root, class, vendor); err != nil {
 			return -1, false, err
 		}
 	}
-	return modID, true, nil
+	return mod.ID, true, nil
 }
 
 func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godoc.PackageDir) error {
@@ -202,7 +211,9 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 						if err != nil {
 							return err
 						}
-						keep = append(keep, pkgID)
+						if pkgID > 0 {
+							keep = append(keep, pkgID)
+						}
 					}
 					continue
 				}
@@ -235,11 +246,6 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 
 func (idx *Index) syncPackage(ctx context.Context, modID int64, root, pkg godoc.PackageDir) (int64, error) {
 	dlogSync.Printf("syncing package %q in %q", pkg.ImportPath, pkg.Dir)
-	if _, err := build.ImportDir(pkg.Dir, 0); err != nil {
-		// Not a valid Go package, so ignore it.
-		return -1, nil
-	}
-
 	relativePath := strings.TrimPrefix(pkg.ImportPath[len(root.ImportPath):], "/")
 	pkgID, err := idx.selectPackageID(ctx, modID, relativePath)
 	if ignoreErrNoRows(err) != nil {

@@ -1,8 +1,9 @@
 CREATE TABLE IF NOT EXISTS metadata (
-  rowid         INTEGER  PRIMARY KEY CHECK (rowid = 1), -- only one row
-  createdAt     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updatedAt     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  buildRevision TEXT     NOT NULL
+  rowid          INTEGER  PRIMARY KEY CHECK (rowid = 1), -- only one row
+  createdAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  buildRevision  TEXT     NOT NULL,
+  goVersion      TEXT     NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS module (
