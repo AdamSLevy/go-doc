@@ -159,11 +159,11 @@ UPDATE module SET (dir, class, vendor) = (?, ?, ?) WHERE rowid=?;
 	return err
 }
 
-func (idx *Index) pruneModules(ctx context.Context, vendor bool, keep []int64) error {
+func (idx *Index) pruneModules(ctx context.Context, keep []int64) error {
 	query := fmt.Sprintf(`
-DELETE FROM module WHERE vendor=? AND rowid NOT IN (%s);
+DELETE FROM module WHERE rowid NOT IN (%s);
 `, placeholders(len(keep)))
-	_, err := idx.tx.ExecContext(ctx, query, pruneModulesArgs(vendor, keep)...)
+	_, err := idx.tx.ExecContext(ctx, query, pruneModulesArgs(keep)...)
 	return err
 }
 func placeholders(n int) string {
@@ -176,9 +176,8 @@ func placeholders(n int) string {
 	}
 	return buf.String()
 }
-func pruneModulesArgs(vendor bool, keep []int64) []any {
-	args := make([]any, 0, len(keep)+1)
-	args = append(args, vendor)
+func pruneModulesArgs(keep []int64) []any {
+	args := make([]any, 0, len(keep))
 	for _, id := range keep {
 		args = append(args, id)
 	}

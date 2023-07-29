@@ -76,7 +76,7 @@ func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDi
 	}
 
 	const vendor = false
-	if err := idx.pruneModules(ctx, vendor, keep); err != nil {
+	if err := idx.pruneModules(ctx, keep); err != nil {
 		return err
 	}
 	pb.Add(1)
