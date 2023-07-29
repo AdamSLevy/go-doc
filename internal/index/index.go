@@ -98,19 +98,19 @@ func (idx *Index) applySchema(ctx context.Context) error {
 		return err
 	}
 
+	if schemaVersion > 0 {
+		return fmt.Errorf("database schema_version (%d) is not zero", schemaVersion)
+	}
+
 	if err := idx.enableForeignKeys(ctx); err != nil {
 		return err
 	}
 
 	queries := schemaQueries()
-	if schemaVersion > len(queries) {
-		return fmt.Errorf("database schema version (%d) higher than number of schema queries (%d)", schemaVersion, len(queries))
-	}
-
-	for i, stmt := range queries[schemaVersion:] {
+	for i, stmt := range queries {
 		_, err := idx.db.ExecContext(ctx, stmt)
 		if err != nil {
-			return fmt.Errorf("failed to apply schema query %d: %w", schemaVersion+i+1, err)
+			return fmt.Errorf("failed to apply schema query %d: %w", i+1, err)
 		}
 	}
 

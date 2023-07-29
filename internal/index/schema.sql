@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS metadata (
+CREATE TABLE metadata (
   rowid          INTEGER  PRIMARY KEY CHECK (rowid = 1), -- only one row
   createdAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS metadata (
   goVersion      TEXT     NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS module (
+CREATE TABLE module (
   rowid      INTEGER PRIMARY KEY,
   importPath TEXT    UNIQUE NOT NULL,
   dir        TEXT    NOT NULL CHECK (dir != ''), -- dir must not be empty
@@ -17,9 +17,10 @@ CREATE TABLE IF NOT EXISTS module (
                          iif(length(importPath)>0,1,0)) -- add 1 if path is not empty
                        STORED
 );
-CREATE INDEX IF NOT EXISTS module_class ON module(class, importPath);
 
-CREATE TABLE IF NOT EXISTS package (
+CREATE INDEX module_class ON module(class, importPath);
+
+CREATE TABLE package (
   rowid        INTEGER PRIMARY KEY,
   moduleId     INT     REFERENCES module(rowid) 
                          ON DELETE CASCADE 
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS package (
   UNIQUE(moduleId, relativePath) ON CONFLICT IGNORE
 );
 
-CREATE VIEW IF NOT EXISTS modulePackage AS
+CREATE VIEW modulePackage AS
   SELECT 
     package.rowid,
     trim(module.importPath || '/' || package.relativePath, '/') as packageImportPath,
@@ -54,7 +55,7 @@ CREATE VIEW IF NOT EXISTS modulePackage AS
     relativeNumParts ASC, 
     relativePath     ASC;
 
-CREATE TABLE IF NOT EXISTS partial (
+CREATE TABLE partial (
   rowid     INTEGER PRIMARY KEY,
   packageId INT     REFERENCES package(rowid) 
                       ON DELETE CASCADE 
@@ -67,9 +68,9 @@ CREATE TABLE IF NOT EXISTS partial (
   UNIQUE(packageId, parts) ON CONFLICT IGNORE
 );
 
-CREATE INDEX IF NOT EXISTS partial_idx_numParts_parts ON partial(numParts, parts COLLATE NOCASE);
+CREATE INDEX partial_idx_numParts_parts ON partial(numParts, parts COLLATE NOCASE);
 
-CREATE VIEW IF NOT EXISTS partialPackage AS
+CREATE VIEW partialPackage AS
   SELECT
     package.rowid,
     packageImportPath,
