@@ -155,7 +155,7 @@ UPDATE module SET (dir, class, vendor) = (?, ?, ?) WHERE rowid=?;
 		return err
 	}
 
-	_, err = stmt.ExecContext(ctx, modID, pkgDir.Dir, int(class), vendor)
+	_, err = stmt.ExecContext(ctx, pkgDir.Dir, int(class), vendor, modID)
 	return err
 }
 
