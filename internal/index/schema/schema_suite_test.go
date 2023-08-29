@@ -223,6 +223,25 @@ var _ = Describe("Schema", func() {
 	})
 
 	Describe("Part", func() {
+		When("a package is removed", func() {
+			It("should remove the package's parts not used by any other package", func(ctx context.Context) {
+				By("re-syncing packages")
+				allPkgs = allPkgs[:len(allPkgs)-2]
+				_, err := SyncPackages(ctx, db, allPkgs)
+				Expect(err).To(Succeed(), "failed to sync packages")
+				Expect(SelectAllPackages(ctx, db, nil)).
+					To(Equal(allPkgs), "SelectAllPackages should return all packages")
+
+				By("selecting the parts")
+				row := db.QueryRowContext(ctx, `
+SELECT count(*) FROM part WHERE name IN ('extensions', 'global', 'table');
+`)
+				Expect(row.Err()).To(Succeed(), "failed to select parts")
+				var count int64
+				Expect(row.Scan(&count)).To(Succeed(), "failed to scan count of parts")
+				Expect(count).To(BeZero(), "parts should be removed")
+			})
+		})
 		DescribeTable("", func(ctx context.Context, packageID int64, expParts []Part) {
 			rows, err := db.QueryContext(ctx, `
 SELECT rowid, package_id, name, parent_id FROM part 

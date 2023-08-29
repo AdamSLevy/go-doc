@@ -86,13 +86,38 @@ CREATE TABLE part_path (
   PRIMARY KEY(descendant_id, ancestor_id)
 ) WITHOUT ROWID;
 
+
+-- This view exists solely to allow for an INSTEAD OF INSERT trigger to be used
+-- to split a package path into parts.
 CREATE VIEW package_part_split AS
   SELECT 
     package_id, total_num_parts, 0 AS path_depth, 
     NULL AS part_parent_id, '' AS part_name, package_import_path AS remaining_path FROM
     module_package;
 
+-- This trigger kicks off the recursive trigger to split a package path into
+-- parts.
+CREATE TRIGGER package_insert_to_package_part_split_insert 
+  AFTER INSERT ON package 
+  BEGIN
+    INSERT INTO package_part_split(
+      package_id, total_num_parts, path_depth, 
+      part_parent_id, part_name, remaining_path)
+      SELECT 
+        new.rowid AS package_id, total_num_parts, 1 AS path_depth, 
+        NULL AS part_parent_id, substr(remaining_path, 1, slash-1) AS part_name, substr(remaining_path, slash+1) AS remaining_path
+      FROM (
+        SELECT 
+          total_num_parts, remaining_path, instr(remaining_path, '/') AS slash
+          FROM (
+            SELECT 
+              total_num_parts, trim(package_import_path, '/') || '/' AS remaining_path
+            FROM module_package WHERE package_id = new.rowid
+          )
+      );
+  END;
 
+-- This trigger splits a package path into parts.
 CREATE TRIGGER package_part_split_insert_to_part_insert 
   INSTEAD OF INSERT ON package_part_split 
   BEGIN
@@ -115,27 +140,6 @@ CREATE TRIGGER package_part_split_insert_to_part_insert
       WHERE new.path_depth < new.total_num_parts;
   END;
 
--- Populate the part table when new packages are inserted.
-CREATE TRIGGER package_insert_to_package_part_split_insert 
-  AFTER INSERT ON package 
-  BEGIN
-    INSERT INTO package_part_split(
-      package_id, total_num_parts, path_depth, 
-      part_parent_id, part_name, remaining_path)
-      SELECT 
-        new.rowid AS package_id, total_num_parts, 1 AS path_depth, 
-        NULL AS part_parent_id, substr(remaining_path, 1, slash-1) AS part_name, substr(remaining_path, slash+1) AS remaining_path
-      FROM (
-        SELECT 
-          total_num_parts, remaining_path, instr(remaining_path, '/') AS slash
-          FROM (
-            SELECT 
-              total_num_parts, trim(package_import_path, '/') || '/' AS remaining_path
-            FROM module_package WHERE package_id = new.rowid
-          )
-      );
-  END;
-
 -- Update part_path table after a part is inserted.
 CREATE TRIGGER part_insert_to_part_path_insert 
   AFTER INSERT ON part 
@@ -154,9 +158,7 @@ CREATE TRIGGER part_update_package_id_null_to_part_delete
   BEGIN
     DELETE FROM part WHERE 
       package_id IS NULL AND
-      rowid NOT IN (
-        SELECT DISTINCT parent_id FROM part
-      );
+      rowid NOT IN (SELECT parent_id FROM part WHERE parent_id IS NOT NULL);
   END;
 
 -- Recursively remove leaf nodes not referenced by any package.
@@ -165,7 +167,5 @@ CREATE TRIGGER part_delete_to_part_delete
   BEGIN
     DELETE FROM part WHERE 
       package_id IS NULL AND
-      rowid NOT IN (
-        SELECT DISTINCT parent_id FROM part
-      );
+      rowid NOT IN (SELECT parent_id FROM part WHERE parent_id IS NOT NULL);
   END;
