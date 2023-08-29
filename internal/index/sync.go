@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"aslevy.com/go-doc/internal/godoc"
+	"aslevy.com/go-doc/internal/index/schema"
 )
 
 var dlogSync = dlog.Child("sync")
@@ -25,13 +26,13 @@ func (idx *Index) needsSync(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 	var err error
-	idx.metadata, err = idx.selectMetadata(ctx)
+	idx.Metadata, err = schema.SelectMetadata(ctx, idx.db)
 	if ignoreErrNoRows(err) != nil {
 		return false, err
 	}
 
-	if idx.metadata.BuildRevision != buildRevision ||
-		idx.metadata.GoVersion != goVersion {
+	if idx.Metadata.BuildRevision != schema.BuildRevision ||
+		idx.Metadata.GoVersion != schema.GoVersion {
 		return true, nil
 	}
 
@@ -56,46 +57,61 @@ func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDi
 	}
 
 	dlogSync.Println("syncing code roots...")
-	commitIfNilErr, err := idx.beginTx(ctx)
+	tx, err := idx.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer commitIfNilErr(&retErr)
+	defer schema.CommitOrRollback(tx, &retErr)
 
 	pb := newProgressBar(idx.options, len(codeRoots)+1, "syncing code roots")
 	defer pb.Finish()
 
-	var keep []int64
-	for _, codeRoot := range codeRoots {
-		modIDs, err := idx.syncCodeRoot(ctx, codeRoot)
+	mods := make([]schema.Module, len(codeRoots))
+	for i, codeRoot := range codeRoots {
+		mods[i] = codeRootToModule(codeRoot)
+	}
+
+	updatedMods, err := schema.SyncModules(ctx, tx, mods)
+	if err != nil {
+		return err
+	}
+
+	var pkgs []schema.Package
+	var partials []schema.Partial
+	for _, mod := range updatedMods {
+		modPkgs, err := idx.syncModulePackages(ctx, mod)
 		if err != nil {
 			return err
 		}
-		keep = append(keep, modIDs...)
-		pb.Add(1)
+		for _, pkg := range newPkgs {
+
+		}
+		pkgs = append(pkgs, modPkgs...)
+
 	}
 
-	const vendor = false
-	if err := idx.pruneModules(ctx, keep); err != nil {
+	newPkgs, err := schema.SyncPackages(ctx, tx, pkgs)
+	if err != nil {
 		return err
 	}
+
+	err := schema.SyncPartials(ctx, tx, partials)
+	if err != nil {
+		return err
+	}
+
 	pb.Add(1)
 
-	return idx.upsertMetadata(ctx)
+	return schema.UpsertMetadata(ctx, tx)
 }
-func (idx *Index) beginTx(ctx context.Context) (commitIfNilErr func(*error), _ error) {
-	tx, err := idx.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
+func codeRootToModule(codeRoot godoc.PackageDir) schema.Module {
+	class, vendor := parseClassVendor(codeRoot)
+	return schema.Module{
+		ImportPath: codeRoot.ImportPath,
+		Dir:        codeRoot.Dir,
+		Class:      class,
+		Vendor:     vendor,
 	}
-	idx.tx = newSqlTx(tx)
-	return func(retErr *error) {
-		if *retErr != nil {
-			tx.Rollback()
-			return
-		}
-		*retErr = tx.Commit()
-	}, nil
 }
 
 func (idx *Index) syncCodeRoot(ctx context.Context, root godoc.PackageDir) (modIDs []int64, _ error) {
@@ -172,17 +188,18 @@ func (idx *Index) upsertModule(ctx context.Context, root godoc.PackageDir, class
 	return mod.ID, true, nil
 }
 
-func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godoc.PackageDir) error {
+func (idx *Index) syncModulePackages(ctx context.Context, root schema.Module) ([]schema.Package, error) {
 	dlogSync.Printf("syncing module packages for %q in %q", root.ImportPath, root.Dir)
 	root.Dir = filepath.Clean(root.Dir) // because filepath.Join will do it anyway
 
-	// this is the queue of directories to examine in this pass.
-	this := []godoc.PackageDir{}
-	// next is the queue of directories to examine in the next pass.
-	next := []godoc.PackageDir{root}
+	pkgs := make([]schema.Package, 0, 100)
 
-	var keep []int64
-	for len(next) > 0 {
+	// this is the queue of directories to examine in this pass.
+	this := []schema.Module{}
+	// next is the queue of directories to examine in the next pass.
+	next := []schema.Module{root}
+
+	for len(next) > 0 && ctx.Err() == nil {
 		dlogSync.Printf("descending")
 		this, next = next, this[0:0]
 		for _, pkg := range this {
@@ -207,13 +224,11 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 				if !entry.IsDir() {
 					if !hasGoFiles && strings.HasSuffix(name, ".go") {
 						hasGoFiles = true
-						pkgID, err := idx.syncPackage(ctx, modID, root, pkg)
-						if err != nil {
-							return err
-						}
-						if pkgID > 0 {
-							keep = append(keep, pkgID)
-						}
+						relativePath := strings.TrimPrefix(pkg.ImportPath[len(root.ImportPath):], "/")
+						pkgs = append(pkgs, schema.Package{
+							ModuleID:     root.ID,
+							RelativePath: relativePath,
+						})
 					}
 					continue
 				}
@@ -241,26 +256,7 @@ func (idx *Index) syncModulePackages(ctx context.Context, modID int64, root godo
 		}
 	}
 
-	return idx.prunePackages(ctx, modID, keep)
-}
-
-func (idx *Index) syncPackage(ctx context.Context, modID int64, root, pkg godoc.PackageDir) (int64, error) {
-	dlogSync.Printf("syncing package %q in %q", pkg.ImportPath, pkg.Dir)
-	relativePath := strings.TrimPrefix(pkg.ImportPath[len(root.ImportPath):], "/")
-	pkgID, err := idx.selectPackageID(ctx, modID, relativePath)
-	if ignoreErrNoRows(err) != nil {
-		return -1, err
-	}
-	if pkgID > 0 {
-		return pkgID, nil
-	}
-
-	pkgID, err = idx.insertPackage(ctx, modID, relativePath)
-	if err != nil {
-		return -1, err
-	}
-
-	return pkgID, idx.syncPartials(ctx, pkgID, pkg.ImportPath)
+	return pkgs, ctx.Err()
 }
 
 func (idx *Index) syncPartials(ctx context.Context, pkgID int64, importPath string) error {

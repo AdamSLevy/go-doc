@@ -23,8 +23,8 @@ func TestMetadata(t *testing.T) {
 	require.NoError(err, "failed to select metadata")
 	require.WithinDuration(m.CreatedAt, time.Now(), time.Second, "created at time is not within a second of now")
 	require.Equal(m.CreatedAt, m.UpdatedAt, "created at and updated at times are not equal")
-	require.Equal(buildRevision, m.BuildRevision, "build revision does not match")
-	require.Equal(goVersion, m.GoVersion, "go version does not match")
+	require.Equal(BuildRevision, m.BuildRevision, "build revision does not match")
+	require.Equal(GoVersion, m.GoVersion, "go version does not match")
 
 	time.Sleep(time.Second)
 	require.NoError(UpsertMetadata(ctx, db), "failed to upsert metadata")

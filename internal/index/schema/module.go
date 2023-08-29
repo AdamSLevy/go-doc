@@ -70,7 +70,7 @@ CREATE TABLE temp."%[1]s" AS
 
 func insertTempModules(ctx context.Context, db Querier, mods []Module) (rerr error) {
 	stmt, err := db.PrepareContext(ctx, `
-INSERT INTO temp.module (importPath, dir, class, vendor) VALUES (?, ?, ?, ?);
+INSERT INTO temp.module (import_path, dir, class, vendor) VALUES (?, ?, ?, ?);
 `)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -93,8 +93,8 @@ INSERT INTO temp.module (importPath, dir, class, vendor) VALUES (?, ?, ?, ?);
 func pruneModules(ctx context.Context, db Querier) error {
 	_, err := db.ExecContext(ctx, `
 DELETE FROM main.module 
-  WHERE importPath NOT IN (
-    SELECT importPath FROM temp.module
+  WHERE import_path NOT IN (
+    SELECT import_path FROM temp.module
 );
 `)
 	return err
@@ -102,11 +102,11 @@ DELETE FROM main.module
 
 func upsertModules(ctx context.Context, db Querier, mods []Module) (_ []Module, rerr error) {
 	rows, err := db.QueryContext(ctx, `
-INSERT INTO main.module (importPath, dir, class, vendor)
-  SELECT importPath, dir, class, vendor 
+INSERT INTO main.module (import_path, dir, class, vendor)
+  SELECT import_path, dir, class, vendor 
     FROM temp.module
     WHERE true
-  ON CONFLICT(importPath) 
+  ON CONFLICT(import_path) 
     DO UPDATE SET
       dir=excluded.dir,
       class=excluded.class,
@@ -114,7 +114,7 @@ INSERT INTO main.module (importPath, dir, class, vendor)
     WHERE dir!=excluded.dir
   RETURNING
     rowid, 
-    importPath, 
+    import_path, 
     dir, 
     class, 
     vendor;
@@ -131,9 +131,9 @@ INSERT INTO main.module (importPath, dir, class, vendor)
 	return scanModules(ctx, rows, mods)
 }
 
-func selectModules(ctx context.Context, db Querier, mods []Module) (_ []Module, rerr error) {
+func SelectAllModules(ctx context.Context, db Querier, mods []Module) (_ []Module, rerr error) {
 	rows, err := db.QueryContext(ctx, `
-SELECT rowid, importPath, dir, class, vendor FROM main.module;
+SELECT rowid, import_path, dir, class, vendor FROM main.module;
 `)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select modules: %w", err)

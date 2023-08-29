@@ -29,7 +29,7 @@ func TestModule(t *testing.T) {
 	require.NoError(err, "failed to insert modules")
 	require.Equal(mods, rMods, "initial insert should return all modules")
 
-	rMods, err = selectModules(ctx, db, rMods[:0])
+	rMods, err = SelectAllModules(ctx, db, rMods[:0])
 	require.NoError(err, "failed to select modules")
 	require.Equal(mods, rMods, "modules do not match")
 
@@ -38,7 +38,7 @@ func TestModule(t *testing.T) {
 	require.NoError(err, "failed to insert modules")
 	require.Empty(rMods, "inserting existing modules should return no modules")
 
-	rMods, err = selectModules(ctx, db, rMods[:0])
+	rMods, err = SelectAllModules(ctx, db, rMods[:0])
 	require.NoError(err, "failed to select modules")
 	require.Equal(mods, rMods, "modules do not match")
 
@@ -55,7 +55,7 @@ func TestModule(t *testing.T) {
 	require.NoError(err, "failed to insert modules")
 	require.Equal(mods[1:3], rMods, "we should only get the new and modified modules")
 
-	rMods, err = selectModules(ctx, db, rMods[:0])
+	rMods, err = SelectAllModules(ctx, db, rMods[:0])
 	require.NoError(err, "failed to select modules")
 	require.Equal(mods, rMods, "modules do not match")
 
@@ -65,7 +65,7 @@ func TestModule(t *testing.T) {
 	require.NoError(err, "failed to insert modules")
 	require.Equal(mods[2:3], rMods, "we should only get the modified module")
 
-	rMods, err = selectModules(ctx, db, rMods[:0])
+	rMods, err = SelectAllModules(ctx, db, rMods[:0])
 	require.NoError(err, "failed to select modules")
 	require.Equal(mods[1:], rMods, "modules do not match")
 }

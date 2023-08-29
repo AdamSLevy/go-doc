@@ -57,6 +57,11 @@ func enableForeignKeys(ctx context.Context, db Querier) error {
 	return setPragma(ctx, db, pragmaForeignKeys, "on")
 }
 
+func enableRecursiveTriggers(ctx context.Context, db Querier) error {
+	const pragmaRecursiveTriggers = "recursive_triggers"
+	return setPragma(ctx, db, pragmaRecursiveTriggers, "on")
+}
+
 func getPragma(ctx context.Context, db Querier, key string, val any) error {
 	query := fmt.Sprintf(`PRAGMA %s;`, key)
 	err := db.QueryRowContext(ctx, query).Scan(val)

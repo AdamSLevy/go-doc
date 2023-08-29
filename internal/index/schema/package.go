@@ -37,7 +37,7 @@ func createTempPackageTable(ctx context.Context, db Querier) error {
 
 func insertTempPackages(ctx context.Context, db Querier, pkgs []Package) (rerr error) {
 	stmt, err := db.PrepareContext(ctx, `
-INSERT INTO temp.package (moduleId, relativePath) VALUES (?, ?);
+INSERT INTO temp.package (module_id, relative_path) VALUES (?, ?);
 `)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -60,10 +60,10 @@ INSERT INTO temp.package (moduleId, relativePath) VALUES (?, ?);
 func prunePackages(ctx context.Context, db Querier) error {
 	_, err := db.ExecContext(ctx, `
 DELETE FROM main.package 
-  WHERE (moduleId) IN (
-    SELECT DISTINCT moduleId FROM temp.package
-  ) AND (moduleId, relativePath) NOT IN (
-    SELECT moduleId, relativePath FROM temp.package
+  WHERE (module_id) IN (
+    SELECT DISTINCT module_id FROM temp.package
+  ) AND (module_id, relative_path) NOT IN (
+    SELECT module_id, relative_path FROM temp.package
   );
 `)
 	return err
@@ -71,17 +71,17 @@ DELETE FROM main.package
 
 func upsertPackages(ctx context.Context, db Querier, pkgs []Package) (_ []Package, rerr error) {
 	rows, err := db.QueryContext(ctx, `
-INSERT INTO main.package (moduleId, relativePath)
-  SELECT moduleId, relativePath 
+INSERT INTO main.package (module_id, relative_path)
+  SELECT module_id, relative_path 
     FROM temp.package
     WHERE true
-  ON CONFLICT(moduleId, relativePath) 
+  ON CONFLICT(module_id, relative_path) 
     DO NOTHING
   RETURNING
     rowid, 
-    moduleId,
-    relativePath,
-    numParts;
+    module_id,
+    relative_path,
+    num_parts;
 `)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upsert packages: %w", err)
@@ -95,10 +95,20 @@ INSERT INTO main.package (moduleId, relativePath)
 	return scanPackages(ctx, rows, pkgs)
 }
 
-func selectPackages(ctx context.Context, db Querier, pkgs []Package) (_ []Package, rerr error) {
-	rows, err := db.QueryContext(ctx, `
-SELECT rowid, moduleId, relativePath, numParts FROM main.package;
-`)
+func SelectAllPackages(ctx context.Context, db Querier, pkgs []Package) (_ []Package, rerr error) {
+	return selectPackagesWhere(ctx, db, pkgs, "")
+}
+func SelectModulePackages(ctx context.Context, db Querier, modId int64) (pkgs []Package, rerr error) {
+	return selectPackagesWhere(ctx, db, pkgs, "module_id = ?", modId)
+}
+func selectPackagesWhere(ctx context.Context, db Querier, pkgs []Package, where string, args ...interface{}) (_ []Package, rerr error) {
+	query := `
+SELECT rowid, module_id, relative_path, num_parts FROM main.package`
+	if where != "" {
+		query += " WHERE " + where + ";"
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select packages: %w", err)
 	}

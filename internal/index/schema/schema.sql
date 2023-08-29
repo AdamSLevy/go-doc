@@ -1,94 +1,171 @@
 CREATE TABLE metadata (
   rowid          INTEGER  PRIMARY KEY CHECK (rowid = 1), -- only one row
-  createdAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updatedAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  buildRevision  TEXT     NOT NULL,
-  goVersion      TEXT     NOT NULL
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  build_revision  TEXT     NOT NULL CHECK (build_revision != ''),
+  go_version      TEXT     NOT NULL CHECK (go_version != '')
 );
 
 CREATE TABLE module (
-  rowid      INTEGER PRIMARY KEY,
-  importPath TEXT    UNIQUE NOT NULL,
-  dir        TEXT    NOT NULL CHECK (dir != ''), -- dir must not be empty
-  class      INT     NOT NULL CHECK (class >= 0 AND class <= 3), -- 0: stdlib, 1: local, 2: required, 3: not required
-  vendor     BOOL    DEFAULT false,
-  numParts   INT     GENERATED ALWAYS AS 
-                       (length(importPath) - length(replace(importPath, '/', '')) + -- number of slashes
-                         iif(length(importPath)>0,1,0)) -- add 1 if path is not empty
-                       STORED
+  rowid       INTEGER PRIMARY KEY,
+  import_path TEXT    UNIQUE NOT NULL,
+  dir         TEXT    NOT NULL CHECK (dir != ''),
+  class       INT     NOT NULL CHECK (class >= 0 AND class <= 3), 
+  vendor      BOOL    DEFAULT false,
+  num_parts   INT     GENERATED ALWAYS AS (
+      length(trim(import_path, '/')) 
+      - length(replace(trim(import_path, '/'), '/', ''))
+      + iif(trim(import_path, '/') = '', 0, 1)
+    ) STORED
 );
 
-CREATE INDEX module_class ON module(class, importPath);
+CREATE INDEX module_class ON module(class, import_path);
 
 CREATE TABLE package (
-  rowid        INTEGER PRIMARY KEY,
-  moduleId     INT     REFERENCES module(rowid) 
-                         ON DELETE CASCADE 
-                         ON UPDATE CASCADE,
-  relativePath TEXT    NOT NULL,
-  numParts     INT     GENERATED ALWAYS AS 
-                         (length(relativePath) - length(replace(relativePath, '/', '')) + -- number of slashes
-                           iif(length(relativePath)>0,1,0)) -- add 1 if path is not empty
-                         STORED,
+  rowid         INTEGER PRIMARY KEY,
+  module_id     INT     REFERENCES module(rowid) 
+                          ON DELETE CASCADE 
+                          ON UPDATE CASCADE,
+  relative_path TEXT    NOT NULL,
+  num_parts     INT     GENERATED ALWAYS AS (
+      length(trim(relative_path, '/')) 
+      - length(replace(trim(relative_path, '/'), '/', ''))
+      + iif(trim(relative_path, '/') = '', 0, 1)
+    ) STORED,
 
-  UNIQUE(moduleId, relativePath) ON CONFLICT IGNORE
+  UNIQUE(module_id, relative_path) ON CONFLICT IGNORE
 );
 
-CREATE VIEW modulePackage AS
+CREATE VIEW module_package AS
   SELECT 
-    package.rowid,
-    trim(module.importPath || '/' || package.relativePath, '/') as packageImportPath,
-    rtrim(module.dir        || '/' || package.relativePath, '/') as packageDir,
-    package.moduleId,
-    module.importPath as moduleImportPath,
-    relativePath,
+    package.rowid AS package_id,
+    trim(module.import_path || '/' || package.relative_path, '/') as package_import_path,
+    rtrim(module.dir        || '/' || package.relative_path, '/') as package_dir,
+    package.module_id,
+    module.import_path as module_import_path,
+    relative_path,
     class, 
     vendor,
-    package.numParts                   as relativeNumParts,
-    package.numParts + module.numParts as totalNumParts
+    package.num_parts                    as relative_num_parts,
+    package.num_parts + module.num_parts as total_num_parts
   FROM package 
     INNER JOIN module
-    ON package.moduleId=module.rowid 
+    ON package.module_id=module.rowid 
   ORDER BY 
-    class            ASC, 
-    moduleImportPath ASC, 
-    relativeNumParts ASC, 
-    relativePath     ASC;
+    class              ASC, 
+    module_import_path ASC, 
+    relative_num_parts ASC, 
+    relative_path      ASC;
 
-CREATE TABLE partial (
-  rowid     INTEGER PRIMARY KEY,
-  packageId INT     REFERENCES package(rowid) 
+CREATE TABLE part (
+  rowid      INTEGER PRIMARY KEY,
+  name       TEXT    NOT NULL,
+  parent_id  INT    REFERENCES part(rowid) 
                       ON DELETE CASCADE 
                       ON UPDATE CASCADE,
-  parts     TEXT    NOT NULL CHECK (parts != ''), -- parts must not be empty
-  numParts  INT     GENERATED ALWAYS AS
-                      (length(parts) - length(replace(parts, '/', '')) + 1) -- number of slashes + 1
-                      STORED,
-
-  UNIQUE(packageId, parts) ON CONFLICT IGNORE
+  package_id INT    REFERENCES package(rowid) 
+                      ON DELETE SET NULL
+                      ON UPDATE CASCADE,
+  UNIQUE(name, parent_id)
 );
 
-CREATE INDEX partial_idx_numParts_parts ON partial(numParts, parts COLLATE NOCASE);
+CREATE        INDEX part_idx_name           ON part(name);
+CREATE        INDEX part_idx_package_id     ON part(package_id);
+CREATE UNIQUE INDEX part_idx_parent_id_name ON part(parent_id, name) WHERE parent_id IS NOT NULL;
+CREATE UNIQUE INDEX part_idx_root_name      ON part(name)            WHERE parent_id IS NULL;
 
-CREATE VIEW partialPackage AS
-  SELECT
-    package.rowid,
-    packageImportPath,
-    packageDir,
-    moduleId,
-    moduleImportPath,
-    class,
-    relativePath,
-    relativeNumParts,
-    totalNumParts,
-    parts,
-    partial.numParts as partialNumParts
-  FROM partial
-    INNER JOIN modulePackage AS package
-    ON partial.packageId=package.rowid
-  ORDER BY 
-    partialNumParts  ASC,
-    class            ASC, 
-    moduleImportPath ASC,
-    relativeNumParts ASC,
-    relativePath     ASC;
+CREATE TABLE part_path (
+  descendant_id INT REFERENCES part(rowid) 
+                      ON DELETE CASCADE 
+                      ON UPDATE CASCADE,
+  ancestor_id   INT REFERENCES part(rowid) 
+                      ON DELETE CASCADE 
+                      ON UPDATE CASCADE,
+  distance      INT NOT NULL CHECK (distance >= 0),
+
+  PRIMARY KEY(descendant_id, ancestor_id)
+) WITHOUT ROWID;
+
+CREATE VIEW package_part_split AS
+  SELECT 
+    package_id, total_num_parts, 0 AS path_depth, 
+    NULL AS part_parent_id, '' AS part_name, package_import_path AS remaining_path FROM
+    module_package;
+
+
+CREATE TRIGGER package_part_split_insert_to_part_insert 
+  INSTEAD OF INSERT ON package_part_split 
+  BEGIN
+    INSERT INTO part (name, parent_id, package_id)
+      VALUES (new.part_name, new.part_parent_id, iif(new.total_num_parts=new.path_depth, new.package_id, NULL))
+      ON CONFLICT DO 
+        UPDATE SET package_id = excluded.package_id 
+          WHERE excluded.package_id IS NOT NULL;
+
+    INSERT INTO package_part_split(
+      package_id, total_num_parts, path_depth, 
+      part_parent_id, 
+      part_name, remaining_path)
+      SELECT 
+        new.package_id, new.total_num_parts, new.path_depth+1, 
+        (SELECT rowid FROM part WHERE parent_id IS new.part_parent_id AND name = new.part_name),
+        substr(new.remaining_path, 1, slash-1), 
+        substr(new.remaining_path, slash+1)
+      FROM (SELECT instr(new.remaining_path, '/') AS slash)
+      WHERE new.path_depth < new.total_num_parts;
+  END;
+
+-- Populate the part table when new packages are inserted.
+CREATE TRIGGER package_insert_to_package_part_split_insert 
+  AFTER INSERT ON package 
+  BEGIN
+    INSERT INTO package_part_split(
+      package_id, total_num_parts, path_depth, 
+      part_parent_id, part_name, remaining_path)
+      SELECT 
+        new.rowid AS package_id, total_num_parts, 1 AS path_depth, 
+        NULL AS part_parent_id, substr(remaining_path, 1, slash-1) AS part_name, substr(remaining_path, slash+1) AS remaining_path
+      FROM (
+        SELECT 
+          total_num_parts, remaining_path, instr(remaining_path, '/') AS slash
+          FROM (
+            SELECT 
+              total_num_parts, trim(package_import_path, '/') || '/' AS remaining_path
+            FROM module_package WHERE package_id = new.rowid
+          )
+      );
+  END;
+
+-- Update part_path table after a part is inserted.
+CREATE TRIGGER part_insert_to_part_path_insert 
+  AFTER INSERT ON part 
+  BEGIN
+    INSERT INTO part_path(descendant_id, ancestor_id, distance)
+      VALUES (new.rowid, new.rowid, 0) UNION ALL
+      SELECT new.rowid, ancestor_id, distance + 1
+        FROM part_path
+        WHERE descendant_id = new.parent_id;
+  END;
+
+-- Remove leaf nodes not referenced by any package.
+CREATE TRIGGER part_update_package_id_null_to_part_delete 
+  AFTER UPDATE OF package_id ON part 
+    WHEN new.package_id IS NULL 
+  BEGIN
+    DELETE FROM part WHERE 
+      package_id IS NULL AND
+      rowid NOT IN (
+        SELECT DISTINCT parent_id FROM part
+      );
+  END;
+
+-- Recursively remove leaf nodes not referenced by any package.
+CREATE TRIGGER part_delete_to_part_delete 
+  AFTER DELETE ON part 
+  BEGIN
+    DELETE FROM part WHERE 
+      package_id IS NULL AND
+      rowid NOT IN (
+        SELECT DISTINCT parent_id FROM part
+      );
+  END;

@@ -1,17 +1,24 @@
 package schema
 
-import "context"
+import (
+	"context"
+	"database/sql"
+)
 
 type Part struct {
 	ID        int64
 	Name      string
 	ParentID  int64
-	FullPath  string
-	Depth     int64
 	PackageID int64
 }
 
-func InsertPartsForModulePackage(ctx context.Context, db Querier,
-	packageID int64, importPath string) error {
-	return nil
+type PartClosure struct {
+	AncestorID   int64
+	DescendantID int64
+	Depth        int64
+}
+
+func SelectPackageParts(ctx context.Context, tx *sql.Tx, packageID int64) ([]Part, error) {
+	const query = `SELECT id, name, parentId, packageId FROM parts WHERE package_id = $1`
+	return nil, nil
 }

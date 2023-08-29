@@ -1,8 +1,6 @@
 package schema
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"database/sql"
 	_ "embed"
@@ -61,16 +59,20 @@ func initialize(ctx context.Context, db *sql.DB) (rerr error) {
 		return err
 	}
 
+	if err := enableRecursiveTriggers(ctx, db); err != nil {
+		return err
+	}
+
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer commitOrRollback(tx, &rerr)
+	defer CommitOrRollback(tx, &rerr)
 
 	return applySchema(ctx, db)
 }
 
-func commitOrRollback(tx *sql.Tx, rerr *error) {
+func CommitOrRollback(tx *sql.Tx, rerr *error) {
 	if *rerr != nil {
 		if err := tx.Rollback(); err != nil {
 			*rerr = errors.Join(*rerr, fmt.Errorf("failed to rollback transaction: %w", err))
@@ -83,63 +85,23 @@ func commitOrRollback(tx *sql.Tx, rerr *error) {
 }
 
 func applySchema(ctx context.Context, db Querier) error {
-	queries := schemaQueries()
-	for i, query := range queries {
-		_, err := db.ExecContext(ctx, query)
-		if err != nil {
-			return fmt.Errorf("failed to apply schema query %d: %w", i+1, err)
-		}
+	_, err := db.ExecContext(ctx, schema)
+	if err != nil {
+		return fmt.Errorf("failed to apply schema: %w", err)
 	}
 
 	dlog.Printf("schema CRC: %d", schemaCRC)
 	return setUserVersion(ctx, db, schemaCRC)
 }
 
-// _schema is the SQL schema for the index database.
+// schema is the SQL schema for the index database.
 //
 //go:embed schema.sql
-var _schema []byte
+var schema string
 
+// schemaCRC is the CRC32 checksum of schema.
 var schemaCRC = func() uint32 {
 	crc := crc32.NewIEEE()
-	crc.Write(_schema)
+	crc.Write([]byte(schema))
 	return crc.Sum32()
 }()
-
-// schemaQueries returns the individual queries in schema.sql.
-func schemaQueries() []string {
-	const numQueries = 8 // number of queries in schema.sql
-	queries := make([]string, 0, numQueries)
-	scanner := bufio.NewScanner(bytes.NewReader(_schema))
-	scanner.Split(sqlSplit)
-	for scanner.Scan() {
-		queries = append(queries, scanner.Text())
-	}
-	if err := scanner.Err(); err != nil {
-		panic(fmt.Errorf("failed to scan schema.sql: %w", err))
-	}
-	return queries
-}
-func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	defer func() {
-		// Trim the token of any leading or trailing whitespace.
-		token = bytes.TrimSpace(token)
-		if len(token) == 0 {
-			// Ensure we don't return an empty token.
-			token = nil
-		}
-	}()
-
-	semiColon := bytes.Index(data, []byte(";"))
-	if semiColon == -1 {
-		// No semi-colon yet...
-		if atEOF {
-			// That's everything...
-			return len(data), data, nil
-		}
-		// Ask for more data so we can find the EOL.
-		return 0, nil, nil
-	}
-	// We found a semi-colon...
-	return semiColon + 1, data[:semiColon+1], nil
-}

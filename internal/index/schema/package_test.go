@@ -70,7 +70,7 @@ func TestPackage(t *testing.T) {
 	require.NoError(err, "failed to sync packages")
 	require.Equal(pkgs, rPkgs, "initial sync should return all packages")
 
-	rPkgs, err = selectPackages(ctx, db, rPkgs[:0])
+	rPkgs, err = SelectAllPackages(ctx, db, rPkgs[:0])
 	require.NoError(err, "failed to select packages")
 	require.Equal(pkgs, rPkgs, "packages do not match")
 
@@ -79,7 +79,7 @@ func TestPackage(t *testing.T) {
 	require.NoError(err, "failed to sync packages")
 	require.Empty(rPkgs, "syncing existing packages should return no packages")
 
-	rPkgs, err = selectPackages(ctx, db, rPkgs[:0])
+	rPkgs, err = SelectAllPackages(ctx, db, rPkgs[:0])
 	require.NoError(err, "failed to select packages")
 	require.Equal(pkgs, rPkgs, "packages do not match")
 
@@ -88,7 +88,7 @@ func TestPackage(t *testing.T) {
 	require.NoError(err, "failed to sync packages")
 	require.Empty(rPkgs, "removing a package should return no packages")
 
-	rPkgs, err = selectPackages(ctx, db, rPkgs[:0])
+	rPkgs, err = SelectAllPackages(ctx, db, rPkgs[:0])
 	require.NoError(err, "failed to select packages")
 	require.Equal(pkgs[:len(pkgs)-1], rPkgs, "packages do not match")
 
@@ -97,7 +97,7 @@ func TestPackage(t *testing.T) {
 	require.NoError(err, "failed to sync packages")
 	require.Equal(pkgs[len(pkgs)-1:], rPkgs, "adding a package should return just that package")
 
-	rPkgs, err = selectPackages(ctx, db, rPkgs[:0])
+	rPkgs, err = SelectAllPackages(ctx, db, rPkgs[:0])
 	require.NoError(err, "failed to select packages")
 	require.Equal(pkgs, rPkgs, "packages do not match")
 
@@ -106,7 +106,7 @@ func TestPackage(t *testing.T) {
 	require.NoError(err, "failed to insert modules")
 	require.Empty(rMods, "removing a module should return no modules")
 
-	rPkgs, err = selectPackages(ctx, db, rPkgs[:0])
+	rPkgs, err = SelectAllPackages(ctx, db, rPkgs[:0])
 	require.NoError(err, "failed to select packages")
 	require.Equal(pkgs[:numPackagesInFirstModule], rPkgs, "packages do not match")
 }

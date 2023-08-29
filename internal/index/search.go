@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"aslevy.com/go-doc/internal/godoc"
+	"aslevy.com/go-doc/internal/index/schema"
 )
 
 var dlogSearch = dlog.Child("search")
@@ -63,7 +64,7 @@ func scanPackageDirs(rows *sql.Rows, handler func(godoc.PackageDir) error) error
 	}
 	return rows.Err()
 }
-func scanPackageDir(row sqlRow) (godoc.PackageDir, error) {
+func scanPackageDir(row schema.Scanner) (godoc.PackageDir, error) {
 	var pkg godoc.PackageDir
 	var min int
 	return pkg, row.Scan(&pkg.ImportPath, &pkg.Dir, &min)
