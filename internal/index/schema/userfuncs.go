@@ -14,7 +14,7 @@ const (
 	FuncTrimFirstPathPart = "trim_first_path_part"
 )
 
-func init() {
+func RegisterUserFuncs() {
 	argTypeError := func(pos int, got, want interface{}) error {
 		return fmt.Errorf("expected %T for arg %d, got %T", got, 1, want)
 	}

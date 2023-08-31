@@ -1,4 +1,4 @@
-package schema_test
+package schema
 
 import (
 	"context"
@@ -7,10 +7,11 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	. "aslevy.com/go-doc/internal/index/schema"
 )
 
+var _ = BeforeSuite(func() {
+	RegisterUserFuncs()
+})
 var _ = Describe("User defined functions", func() {
 	var db *sql.DB
 	BeforeEach(func(ctx context.Context) {

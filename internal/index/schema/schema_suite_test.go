@@ -1,4 +1,4 @@
-package schema_test
+package schema
 
 import (
 	"context"
@@ -9,8 +9,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	. "aslevy.com/go-doc/internal/index/schema"
 )
 
 func TestSchema(t *testing.T) {
@@ -27,10 +25,18 @@ func initDB(ctx context.Context) *sql.DB {
 	)
 	t := GinkgoT()
 	path := dbFile + filepath.Join(t.TempDir(), dbName)
-	t.Log("db path: ", path)
 	db, err := OpenDB(ctx, path)
 	Expect(err).To(Succeed(), "failed to open database")
 	Expect(db.PingContext(ctx)).To(Succeed(), "failed to ping database")
+	t.Log("db path: ", path)
+
+	var foreignKeys, recursiveTriggers bool
+	Expect(getPragma(ctx, db, pragmaForeignKeys, &foreignKeys)).To(Succeed(), "failed to get foreign_keys pragma")
+	Expect(foreignKeys).To(BeTrue(), "foreign_keys should be enabled")
+
+	Expect(getPragma(ctx, db, pragmaRecursiveTriggers, &recursiveTriggers)).To(Succeed(), "failed to get recursive_triggers pragma")
+	Expect(recursiveTriggers).To(BeTrue(), "recursive_triggers should be enabled")
+
 	DeferCleanup(func() {
 		By("closing the database")
 		Expect(db.Close()).To(Succeed(), "failed to close database")
@@ -243,125 +249,94 @@ SELECT count(*) FROM part WHERE name IN ('extensions', 'global', 'table');
 			})
 		})
 		DescribeTable("", func(ctx context.Context, packageID int64, expParts []Part) {
-			rows, err := db.QueryContext(ctx, `
-SELECT rowid, package_id, name, parent_id FROM part 
-        WHERE rowid IN (
-                SELECT ancestor_id FROM part_path 
-                        WHERE descendant_id = (
-                                SELECT rowid FROM part WHERE package_id = ?
-                        )
-                );
-`, packageID)
+			parts, err := SelectPackageParts(ctx, db, packageID, nil)
 			Expect(err).To(Succeed(), "failed to select parts")
-			defer rows.Close()
-			parts := make([]Part, 0, len(expParts))
-			for rows.Next() && rows.Err() == nil && ctx.Err() == nil {
-				var part Part
-				var partPackageID sql.NullInt64
-				var partParentID sql.NullInt64
-				if !Expect(rows.Scan(
-					&part.ID,
-					&partPackageID,
-					&part.Name,
-					&partParentID,
-				)).To(Succeed(), "failed to scan part") {
-					return
-				}
-				Expect(rows.Err()).To(Succeed(), "failed to scan parts")
-				part.ParentID = -1
-				if partParentID.Valid {
-					part.ParentID = partParentID.Int64
-				}
-				part.PackageID = -1
-				if partPackageID.Valid {
-					part.PackageID = partPackageID.Int64
-				}
-				parts = append(parts, part)
-			}
 			Expect(parts).To(Equal(expParts), "parts do not match")
 		},
 			Entry(nil, int64(1), []Part{{
 				ID:        1,
-				PackageID: -1,
-				ParentID:  -1,
+				PackageID: nil,
+				ParentID:  nil,
 				Name:      "github.com",
 			}, {
 				ID:        2,
-				PackageID: -1,
-				ParentID:  1,
+				PackageID: nil,
+				ParentID:  int64Ptr(1),
 				Name:      "stretchr",
 			}, {
 				ID:        3,
-				PackageID: 1,
-				ParentID:  2,
+				PackageID: int64Ptr(1),
+				ParentID:  int64Ptr(2),
 				Name:      "testify",
 			}}),
 			Entry(nil, int64(2), []Part{{
 				ID:        1,
-				PackageID: -1,
-				ParentID:  -1,
+				PackageID: nil,
+				ParentID:  nil,
 				Name:      "github.com",
 			}, {
 				ID:        2,
-				PackageID: -1,
-				ParentID:  1,
+				PackageID: nil,
+				ParentID:  int64Ptr(1),
 				Name:      "stretchr",
 			}, {
 				ID:        3,
-				PackageID: 1,
-				ParentID:  2,
+				PackageID: int64Ptr(1),
+				ParentID:  int64Ptr(2),
 				Name:      "testify",
 			}, {
 				ID:        4,
-				PackageID: 2,
-				ParentID:  3,
+				PackageID: int64Ptr(2),
+				ParentID:  int64Ptr(3),
 				Name:      "assert",
 			}}),
 			Entry(nil, int64(3), []Part{{
 				ID:        1,
-				PackageID: -1,
-				ParentID:  -1,
+				PackageID: nil,
+				ParentID:  nil,
 				Name:      "github.com",
 			}, {
 				ID:        2,
-				PackageID: -1,
-				ParentID:  1,
+				PackageID: nil,
+				ParentID:  int64Ptr(1),
 				Name:      "stretchr",
 			}, {
 				ID:        3,
-				PackageID: 1,
-				ParentID:  2,
+				PackageID: int64Ptr(1),
+				ParentID:  int64Ptr(2),
 				Name:      "testify",
 			}, {
 				ID:        5,
-				PackageID: 3,
-				ParentID:  3,
+				PackageID: int64Ptr(3),
+				ParentID:  int64Ptr(3),
 				Name:      "require",
 			}}),
 			Entry(nil, int64(4), []Part{{
 				ID:        1,
-				PackageID: -1,
-				ParentID:  -1,
+				PackageID: nil,
+				ParentID:  nil,
 				Name:      "github.com",
 			}, {
 				ID:        6,
-				PackageID: -1,
-				ParentID:  1,
+				PackageID: nil,
+				ParentID:  int64Ptr(1),
 				Name:      "muesli",
 			}, {
 				ID:        7,
-				PackageID: -1,
-				ParentID:  6,
+				PackageID: nil,
+				ParentID:  int64Ptr(6),
 				Name:      "reflow",
 			}, {
 				ID:        8,
-				PackageID: 4,
-				ParentID:  7,
+				PackageID: int64Ptr(4),
+				ParentID:  int64Ptr(7),
 				Name:      "indent",
 			}}),
 		)
 	})
 })
+
+func int64Ptr(i int64) *int64 { return &i }
 
 func initModules() []Module {
 	return []Module{{

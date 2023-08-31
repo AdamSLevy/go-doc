@@ -48,8 +48,7 @@ CREATE VIEW module_package AS
     vendor,
     package.num_parts                    as relative_num_parts,
     package.num_parts + module.num_parts as total_num_parts
-  FROM package 
-    INNER JOIN module
+  FROM package, module
     ON package.module_id=module.rowid 
   ORDER BY 
     class              ASC, 
@@ -59,20 +58,33 @@ CREATE VIEW module_package AS
 
 CREATE TABLE part (
   rowid      INTEGER PRIMARY KEY,
-  name       TEXT    NOT NULL,
-  parent_id  INT    REFERENCES part(rowid) 
+  parent_id  INT     REFERENCES part(rowid) 
                       ON DELETE CASCADE 
                       ON UPDATE CASCADE,
-  package_id INT    REFERENCES package(rowid) 
-                      ON DELETE SET NULL
-                      ON UPDATE CASCADE,
-  UNIQUE(name, parent_id)
+  name       TEXT    NOT NULL CHECK (name != ''),
+  package_id INT REFERENCES package(rowid) 
+                   ON DELETE SET NULL
+                   ON UPDATE CASCADE,
+  path_depth INT NOT NULL CHECK (path_depth > 0),
+  UNIQUE(parent_id, name)
 );
 
 CREATE        INDEX part_idx_name           ON part(name);
 CREATE        INDEX part_idx_package_id     ON part(package_id);
 CREATE UNIQUE INDEX part_idx_parent_id_name ON part(parent_id, name) WHERE parent_id IS NOT NULL;
 CREATE UNIQUE INDEX part_idx_root_name      ON part(name)            WHERE parent_id IS NULL;
+
+CREATE TABLE part_package (
+  part_id    INT REFERENCES part(rowid) 
+                   ON DELETE CASCADE 
+                   ON UPDATE CASCADE,
+  package_id INT REFERENCES package(rowid) 
+                   ON DELETE CASCADE 
+                   ON UPDATE CASCADE,
+  PRIMARY KEY(part_id, package_id)
+) WITHOUT ROWID;
+
+CREATE INDEX part_package_idx_package_id ON part_package(package_id);
 
 CREATE TABLE part_path (
   descendant_id INT REFERENCES part(rowid) 
@@ -86,6 +98,10 @@ CREATE TABLE part_path (
   PRIMARY KEY(descendant_id, ancestor_id)
 ) WITHOUT ROWID;
 
+CREATE INDEX part_path_idx_ancestor_id         ON part_path(ancestor_id, descendant_id, distance);
+CREATE INDEX part_path_idx_descendant_id       ON part_path(descendant_id, ancestor_id, distance);
+CREATE INDEX part_path_idx_distance_descendant ON part_path(distance, descendant_id, ancestor_id);
+CREATE INDEX part_path_idx_distance_ancestor   ON part_path(distance, ancestor_id, descendant_id);
 
 -- This view exists solely to allow for an INSTEAD OF INSERT trigger to be used
 -- to split a package path into parts.
@@ -111,7 +127,7 @@ CREATE TRIGGER package_insert_to_package_part_split_insert
           total_num_parts, remaining_path, instr(remaining_path, '/') AS slash
           FROM (
             SELECT 
-              total_num_parts, trim(package_import_path, '/') || '/' AS remaining_path
+              total_num_parts, package_import_path || '/' AS remaining_path
             FROM module_package WHERE package_id = new.rowid
           )
       );
@@ -121,11 +137,16 @@ CREATE TRIGGER package_insert_to_package_part_split_insert
 CREATE TRIGGER package_part_split_insert_to_part_insert 
   INSTEAD OF INSERT ON package_part_split 
   BEGIN
-    INSERT INTO part (name, parent_id, package_id)
-      VALUES (new.part_name, new.part_parent_id, iif(new.total_num_parts=new.path_depth, new.package_id, NULL))
+    INSERT INTO part(name, parent_id, path_depth, package_id)
+      SELECT new.part_name, new.part_parent_id, new.path_depth, iif(new.total_num_parts=new.path_depth, new.package_id, NULL)
+        WHERE new.part_name != ''
       ON CONFLICT DO 
         UPDATE SET package_id = excluded.package_id 
           WHERE excluded.package_id IS NOT NULL;
+
+    INSERT INTO part_package(part_id, package_id)
+      SELECT new.part_parent_id, new.package_id 
+        WHERE new.part_parent_id IS NOT NULL;
 
     INSERT INTO package_part_split(
       package_id, total_num_parts, path_depth, 
@@ -133,11 +154,11 @@ CREATE TRIGGER package_part_split_insert_to_part_insert
       part_name, remaining_path)
       SELECT 
         new.package_id, new.total_num_parts, new.path_depth+1, 
-        (SELECT rowid FROM part WHERE parent_id IS new.part_parent_id AND name = new.part_name),
+        (SELECT rowid FROM part WHERE parent_id IS new.part_parent_id AND name = new.part_name) AS part_parent_id,
         substr(new.remaining_path, 1, slash-1), 
         substr(new.remaining_path, slash+1)
       FROM (SELECT instr(new.remaining_path, '/') AS slash)
-      WHERE new.path_depth < new.total_num_parts;
+      WHERE new.path_depth <= new.total_num_parts;
   END;
 
 -- Update part_path table after a part is inserted.
@@ -158,7 +179,7 @@ CREATE TRIGGER part_update_package_id_null_to_part_delete
   BEGIN
     DELETE FROM part WHERE 
       package_id IS NULL AND
-      rowid NOT IN (SELECT parent_id FROM part WHERE parent_id IS NOT NULL);
+      rowid NOT IN (SELECT DISTINCT parent_id FROM part WHERE parent_id IS NOT NULL);
   END;
 
 -- Recursively remove leaf nodes not referenced by any package.
@@ -167,5 +188,5 @@ CREATE TRIGGER part_delete_to_part_delete
   BEGIN
     DELETE FROM part WHERE 
       package_id IS NULL AND
-      rowid NOT IN (SELECT parent_id FROM part WHERE parent_id IS NOT NULL);
+      rowid NOT IN (SELECT DISTINCT parent_id FROM part WHERE parent_id IS NOT NULL);
   END;
