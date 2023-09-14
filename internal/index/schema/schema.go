@@ -106,6 +106,15 @@ var schemaCRC int32 = func() int32 {
 }()
 
 func execSplit(ctx context.Context, db Querier, sql []byte) error {
+	return splitSQL(sql, func(query string) error {
+		_, err := db.ExecContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("failed to apply query: %w\n%s\n", err, query)
+		}
+		return nil
+	})
+}
+func splitSQL(sql []byte, handle func(string) error) error {
 	scanner := bufio.NewScanner(bytes.NewReader(sql))
 	scanner.Split(sqlSplit)
 	for scanner.Scan() {
@@ -113,9 +122,8 @@ func execSplit(ctx context.Context, db Querier, sql []byte) error {
 		if query == "" {
 			continue
 		}
-		_, err := db.ExecContext(ctx, query)
-		if err != nil {
-			return fmt.Errorf("failed to apply query: %w\n%s\n", err, query)
+		if err := handle(query); err != nil {
+			return err
 		}
 	}
 	if err := scanner.Err(); err != nil {
