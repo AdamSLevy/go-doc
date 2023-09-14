@@ -12,6 +12,8 @@ type Package struct {
 	ModuleID     int64
 	RelativePath string
 	NumParts     int
+
+	ImportPath string
 }
 
 func SyncPackages(ctx context.Context, db Querier, pkgs []Package) error {
@@ -24,14 +26,26 @@ func SyncPackages(ctx context.Context, db Querier, pkgs []Package) error {
 	return nil
 }
 
-func insertPackages(ctx context.Context, db Querier, pkgs []Package) (rerr error) {
-	stmt, err := db.PrepareContext(ctx, `
+func insertPackageStmt(ctx context.Context, db Querier) (*sql.Stmt, error) {
+	return db.PrepareContext(ctx, `
 INSERT INTO main.package (module_id, relative_path) VALUES (?, ?)
   ON CONFLICT 
     DO UPDATE SET
       module_id = excluded.module_id,
       relative_path = excluded.relative_path;
 `)
+}
+
+func insertPackage(ctx context.Context, stmt *sql.Stmt, pkg Package) (rerr error) {
+	_, err := stmt.ExecContext(ctx, pkg.ModuleID, pkg.RelativePath)
+	if err != nil {
+		return fmt.Errorf("failed to execute prepared statement: %w", err)
+	}
+	return nil
+}
+
+func insertPackages(ctx context.Context, db Querier, pkgs []Package) (rerr error) {
+	stmt, err := insertPackageStmt(ctx, db)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -42,9 +56,8 @@ INSERT INTO main.package (module_id, relative_path) VALUES (?, ?)
 	}()
 
 	for _, pkg := range pkgs {
-		_, err := stmt.ExecContext(ctx, pkg.ModuleID, pkg.RelativePath)
-		if err != nil {
-			return fmt.Errorf("failed to execute prepared statement: %w", err)
+		if err := insertPackage(ctx, stmt, pkg); err != nil {
+			return err
 		}
 	}
 	return nil

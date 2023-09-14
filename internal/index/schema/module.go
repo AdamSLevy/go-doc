@@ -67,9 +67,6 @@ func SyncModules(ctx context.Context, db Querier, required []Module) (needSync [
 	if err := insertModules(ctx, db, required); err != nil {
 		return nil, fmt.Errorf("failed to insert modules: %w", err)
 	}
-	if err := pruneModules(ctx, db); err != nil {
-		return nil, fmt.Errorf("failed to prune modules: %w", err)
-	}
 	return selectModulesNeedSync(ctx, db, make([]Module, 0, len(required)))
 }
 

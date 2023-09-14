@@ -69,16 +69,27 @@ func initialize(ctx context.Context, db *sql.DB) (rerr error) {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer CommitOrRollback(tx, &rerr)
+	defer RollbackOnError(tx, &rerr)
+	defer CommitOnSuccess(tx, &rerr)
 
 	return applySchema(ctx, tx)
 }
 
-func CommitOrRollback(tx *sql.Tx, rerr *error) {
+func RollbackOrCommit(tx *sql.Tx, rerr *error) {
+	RollbackOnError(tx, rerr)
+	CommitOnSuccess(tx, rerr)
+}
+func RollbackOnError(tx *sql.Tx, rerr *error) {
+	if *rerr == nil {
+		return
+	}
+	dlog.Output(0, "rolling back...")
+	if err := tx.Rollback(); err != nil {
+		*rerr = errors.Join(*rerr, fmt.Errorf("failed to rollback transaction: %w", err))
+	}
+}
+func CommitOnSuccess(tx *sql.Tx, rerr *error) {
 	if *rerr != nil {
-		if err := tx.Rollback(); err != nil {
-			*rerr = errors.Join(*rerr, fmt.Errorf("failed to rollback transaction: %w", err))
-		}
 		return
 	}
 	if err := tx.Commit(); err != nil {
