@@ -23,7 +23,8 @@ CREATE INDEX module_class ON module(class, import_path);
 
 CREATE TABLE package (
   rowid         INTEGER PRIMARY KEY,
-  module_id     INT     REFERENCES module(rowid) 
+  module_id     INT     NOT NULL
+                        REFERENCES module(rowid) 
                           ON DELETE CASCADE 
                           ON UPDATE CASCADE,
   relative_path TEXT    NOT NULL,
@@ -33,7 +34,7 @@ CREATE TABLE package (
       + iif(trim(relative_path, '/') = '', 0, 1)
     ) STORED,
 
-  UNIQUE(module_id, relative_path) ON CONFLICT IGNORE
+  UNIQUE(module_id, relative_path)
 );
 
 CREATE VIEW module_package AS
@@ -75,10 +76,12 @@ CREATE UNIQUE INDEX part_idx_parent_id_name ON part(parent_id, name) WHERE paren
 CREATE UNIQUE INDEX part_idx_root_name      ON part(name)            WHERE parent_id IS NULL;
 
 CREATE TABLE part_package (
-  part_id    INT REFERENCES part(rowid) 
+  part_id    INT NOT NULL
+                 REFERENCES part(rowid) 
                    ON DELETE CASCADE 
                    ON UPDATE CASCADE,
-  package_id INT REFERENCES package(rowid) 
+  package_id INT NOT NULL
+                 REFERENCES package(rowid) 
                    ON DELETE CASCADE 
                    ON UPDATE CASCADE,
   PRIMARY KEY(part_id, package_id)
@@ -87,10 +90,12 @@ CREATE TABLE part_package (
 CREATE INDEX part_package_idx_package_id ON part_package(package_id);
 
 CREATE TABLE part_path (
-  descendant_id INT REFERENCES part(rowid) 
+  descendant_id INT NOT NULL
+                    REFERENCES part(rowid) 
                       ON DELETE CASCADE 
                       ON UPDATE CASCADE,
-  ancestor_id   INT REFERENCES part(rowid) 
+  ancestor_id   INT NOT NULL
+                    REFERENCES part(rowid) 
                       ON DELETE CASCADE 
                       ON UPDATE CASCADE,
   distance      INT NOT NULL CHECK (distance >= 0),
