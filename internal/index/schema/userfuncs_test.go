@@ -15,7 +15,7 @@ var _ = BeforeSuite(func() {
 var _ = Describe("User defined functions", func() {
 	var db *sql.DB
 	BeforeEach(func(ctx context.Context) {
-		db = initDB(ctx)
+		db = initDB(ctx, tempDBPath())
 	})
 
 	DescribeTable("input", func(ctx context.Context, path, expFirstPart, expRemainingParts string, expNumParts int64) {

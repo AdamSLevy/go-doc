@@ -10,12 +10,12 @@ import (
 //
 // See https://www.sqlite.org/fileformat.html#application_id
 const (
-	sqliteApplicationID     uint32 = 0x0_90_D0C_90 // GO DOC GO
-	pragmaApplicationID            = "application_id"
-	pragmaUserVersion              = "user_version"
-	pragmaSchemaVersion            = "schema_version"
-	pragmaForeignKeys              = "foreign_keys"
-	pragmaRecursiveTriggers        = "recursive_triggers"
+	sqliteApplicationID     = int32(0x0_90_D0C_90) // GO DOC GO
+	pragmaApplicationID     = "application_id"
+	pragmaUserVersion       = "user_version"
+	pragmaSchemaVersion     = "schema_version"
+	pragmaForeignKeys       = "foreign_keys"
+	pragmaRecursiveTriggers = "recursive_triggers"
 )
 
 func assertApplicationID(ctx context.Context, db Querier) error {
@@ -31,22 +31,22 @@ func assertApplicationID(ctx context.Context, db Querier) error {
 	}
 	return nil
 }
-func getApplicationID(ctx context.Context, db Querier) (appID uint32, _ error) {
+func getApplicationID(ctx context.Context, db Querier) (appID int32, _ error) {
 	return appID, getPragma(ctx, db, pragmaApplicationID, &appID)
 }
 func setApplicationID(ctx context.Context, db Querier) error {
 	return setPragma(ctx, db, pragmaApplicationID, sqliteApplicationID)
 }
 
-func getUserVersion(ctx context.Context, db Querier) (userVersion uint32, _ error) {
+func getUserVersion(ctx context.Context, db Querier) (userVersion int32, _ error) {
 	return userVersion, getPragma(ctx, db, pragmaUserVersion, &userVersion)
 }
-func setUserVersion(ctx context.Context, db Querier, userVersion uint32) error {
+func setUserVersion(ctx context.Context, db Querier, userVersion int32) error {
 	return setPragma(ctx, db, pragmaUserVersion, userVersion)
 }
 
-func getSchemaVersion(ctx context.Context, db Querier) (int, error) {
-	var schemaVersion int
+func getSchemaVersion(ctx context.Context, db Querier) (uint32, error) {
+	var schemaVersion uint32
 	if err := getPragma(ctx, db, pragmaSchemaVersion, &schemaVersion); err != nil {
 		return 0, err
 	}
@@ -54,18 +54,22 @@ func getSchemaVersion(ctx context.Context, db Querier) (int, error) {
 }
 
 func enableForeignKeys(ctx context.Context, db Querier) error {
-	return setPragma(ctx, db, pragmaForeignKeys, "on")
+	return setPragma(ctx, db, pragmaForeignKeys, true)
 }
 
 func enableRecursiveTriggers(ctx context.Context, db Querier) error {
-	return setPragma(ctx, db, pragmaRecursiveTriggers, "on")
+	return setPragma(ctx, db, pragmaRecursiveTriggers, true)
 }
 
 func getPragma(ctx context.Context, db Querier, key string, val any) error {
 	query := fmt.Sprintf(`PRAGMA %s;`, key)
-	err := db.QueryRowContext(ctx, query).Scan(val)
-	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", query, err)
+	row := db.QueryRowContext(ctx, query)
+
+	if err := row.Err(); err != nil {
+		return fmt.Errorf("failed to query %s: %w", query, err)
+	}
+	if err := row.Scan(val); err != nil {
+		return fmt.Errorf("failed to scan %s: %w", query, err)
 	}
 	return nil
 }

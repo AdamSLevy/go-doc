@@ -11,24 +11,38 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+// func init() {
+// 	dlog.Enable()
+// }
+
 func TestSchema(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Schema Suite")
 }
 
-func initDB(ctx context.Context) *sql.DB {
+func tempDBPath() string {
 	GinkgoHelper()
-	By("opening the database")
 	const (
 		dbFile = "file:"
 		dbName = "index.sqlite3"
 	)
-	t := GinkgoT()
-	path := dbFile + filepath.Join(t.TempDir(), dbName)
-	db, err := OpenDB(ctx, path)
+	tempDir := GinkgoT().TempDir()
+	return dbFile + filepath.Join(tempDir, dbName)
+}
+func initDB(ctx context.Context, dbPath string) *sql.DB {
+	GinkgoHelper()
+	By("opening db " + dbPath)
+	db, err := OpenDB(ctx, dbPath)
 	Expect(err).To(Succeed(), "failed to open database")
 	Expect(db.PingContext(ctx)).To(Succeed(), "failed to ping database")
-	t.Log("db path: ", path)
+
+	applicationID, err := getApplicationID(ctx, db)
+	Expect(err).To(Succeed(), "failed to get application_id pragma")
+	Expect(applicationID).To(Equal(sqliteApplicationID), "application_id should be set")
+
+	userVersion, err := getUserVersion(ctx, db)
+	Expect(err).To(Succeed(), "failed to get user_version pragma")
+	Expect(userVersion).To(Equal(schemaCRC), "user_version should be set")
 
 	var foreignKeys, recursiveTriggers bool
 	Expect(getPragma(ctx, db, pragmaForeignKeys, &foreignKeys)).To(Succeed(), "failed to get foreign_keys pragma")
@@ -45,14 +59,35 @@ func initDB(ctx context.Context) *sql.DB {
 }
 
 var _ = Describe("Schema", func() {
-	var db *sql.DB
+	var (
+		db      *sql.DB
+		allMods []Module
+		allPkgs []Package
+	)
 	BeforeEach(func(ctx context.Context) {
-		db = initDB(ctx)
-	})
+		dbPath := tempDBPath()
+		db = initDB(ctx, dbPath)
 
-	BeforeEach(func(ctx context.Context) {
 		By("populating the metadata table")
 		Expect(UpsertMetadata(ctx, db)).To(Succeed(), "failed to insert metadata")
+
+		By("populating the module table")
+		allMods = initModules()
+		Expect(SyncModules(ctx, db, allMods)).
+			To(Equal(allMods), "initial SyncModules should return all modules")
+		Expect(SelectAllModules(ctx, db, nil)).
+			To(Equal(allMods), "SelectAllModules should return all modules")
+
+		By("populating the package table")
+		allPkgs = initPackages()
+		Expect(SyncPackages(ctx, db, allPkgs)).
+			To(Succeed(), "initial SyncPackages should succeed")
+		Expect(SelectAllPackages(ctx, db, nil)).
+			To(Equal(allPkgs), "SelectAllPackages should return all packages")
+
+		By("closing and re-opening the database")
+		Expect(db.Close()).To(Succeed(), "failed to close database")
+		db = initDB(ctx, dbPath)
 	})
 
 	Describe("Metadata", func() {
@@ -90,26 +125,6 @@ var _ = Describe("Schema", func() {
 				Expect(md.GoVersion).ToNot(BeEmpty(), "GoVersion should be set")
 			})
 		})
-	})
-
-	var allMods []Module
-	BeforeEach(func(ctx context.Context) {
-		By("populating the module table")
-		allMods = initModules()
-		Expect(SyncModules(ctx, db, allMods)).
-			To(Equal(allMods), "initial SyncModules should return all modules")
-		Expect(SelectAllModules(ctx, db, nil)).
-			To(Equal(allMods), "SelectAllModules should return all modules")
-	})
-
-	var allPkgs []Package
-	BeforeEach(func(ctx context.Context) {
-		By("populating the package table")
-		allPkgs = initPackages()
-		Expect(SyncPackages(ctx, db, allPkgs)).
-			To(Succeed(), "initial SyncPackages should succeed")
-		Expect(SelectAllPackages(ctx, db, nil)).
-			To(Equal(allPkgs), "SelectAllPackages should return all packages")
 	})
 
 	Describe("Sync", func() {

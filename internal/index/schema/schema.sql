@@ -1,197 +1,387 @@
-CREATE TABLE metadata (
-  rowid          INTEGER  PRIMARY KEY CHECK (rowid = 1), -- only one row
-  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  build_revision  TEXT     NOT NULL CHECK (build_revision != ''),
-  go_version      TEXT     NOT NULL CHECK (go_version != '')
-);
+-- The schema for the database.
+--
+-- Use ;--- to separate statements. This is a simple hack to allow for
+-- splitting complete statements. Omitting the ;--- won't result in an error,
+-- but that statement will be executed together with all subsequent statements
+-- until the next ;--- or the end of the file.
 
+-- metadata stores information about the database.
+--
+-- rowid is the primary key and is always 1 to ensure there is only one row.
+--
+-- created_at is the time the database was created.
+--
+-- updated_at is the time the database was last updated.
+--
+-- build_revision is the git revision of the build.
+--
+-- go_version is the version of Go used to build the binary.
+CREATE TABLE metadata (
+  rowid          INTEGER  PRIMARY KEY CHECK (rowid = 1),
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  build_revision TEXT     NOT NULL CHECK (build_revision != ''),
+  go_version     TEXT     NOT NULL CHECK (go_version != '')
+) WITHOUT ROWID;---
+
+-- module stores all required modules and the directory they are located in.
+--
+-- import_path is the module's import path.
+--
+-- dir is the directory the module is located in.
+--
+-- class is an integer that represents the type of module:
+--  0: standard library
+--  1: local/main module
+--  2: required module
+--
+-- vendor is a boolean that indicates whether the module is a vendored module.
+--
+-- num_parts is the number of slash separated parts in the module's import path.
 CREATE TABLE module (
   rowid       INTEGER PRIMARY KEY,
   import_path TEXT    UNIQUE NOT NULL,
   dir         TEXT    NOT NULL CHECK (dir != ''),
-  class       INT     NOT NULL CHECK (class >= 0 AND class <= 3), 
+  class       INT     NOT NULL CHECK (class >= 0 AND class <= 2),
   vendor      BOOL    DEFAULT false,
   num_parts   INT     GENERATED ALWAYS AS (
-      length(trim(import_path, '/')) 
+      length(trim(import_path, '/'))
       - length(replace(trim(import_path, '/'), '/', ''))
       + iif(trim(import_path, '/') = '', 0, 1)
     ) STORED
-);
+);---
 
-CREATE INDEX module_class ON module(class, import_path);
+CREATE INDEX module_class ON module(class, import_path);---
 
+-- package stores all packages for all modules.
+--
+-- module_id is the module the package belongs to.
+--
+-- relative_path is the package's path relative to the module's import_path.
+-- This can be empty if the module's import path is an importable package.
+--
+-- num_parts is the number of slash separated parts in the package's relative path.
 CREATE TABLE package (
   rowid         INTEGER PRIMARY KEY,
   module_id     INT     NOT NULL
-                        REFERENCES module(rowid) 
-                          ON DELETE CASCADE 
+                        REFERENCES module(rowid)
+                          ON DELETE CASCADE
                           ON UPDATE CASCADE,
   relative_path TEXT    NOT NULL,
   num_parts     INT     GENERATED ALWAYS AS (
-      length(trim(relative_path, '/')) 
+      length(trim(relative_path, '/'))
       - length(replace(trim(relative_path, '/'), '/', ''))
       + iif(trim(relative_path, '/') = '', 0, 1)
     ) STORED,
 
   UNIQUE(module_id, relative_path)
-);
+);---
 
+-- module_package is a view that joins module and package information.
+--
+-- package_id is the package's rowid.
+--
+-- package_import_path is the package's import path.
+--
+-- package_dir is the directory the package is located in.
+--
+-- module_id is the module's rowid.
+--
+-- module_import_path is the module's import path.
+--
+-- relative_path is the package's path relative to the module's import_path.
+--
+-- class is an integer that represents the type of module.
+--
+-- vendor is a boolean that indicates whether the package is in a vendored
+-- module.
+--
+-- relative_num_parts is the number of slash separated parts in the package's relative_path.
+--
+-- total_num_parts is the number of slash separated parts in the package_import_path.
 CREATE VIEW module_package AS
-  SELECT 
+  SELECT
     package.rowid AS package_id,
     trim(module.import_path || '/' || package.relative_path, '/') as package_import_path,
     rtrim(module.dir        || '/' || package.relative_path, '/') as package_dir,
     package.module_id,
     module.import_path as module_import_path,
     relative_path,
-    class, 
+    class,
     vendor,
     package.num_parts                    as relative_num_parts,
     package.num_parts + module.num_parts as total_num_parts
-  FROM package, module
-    ON package.module_id=module.rowid 
-  ORDER BY 
-    class              ASC, 
-    module_import_path ASC, 
-    relative_num_parts ASC, 
-    relative_path      ASC;
+  FROM
+    package, module
+  ON
+    package.module_id=module.rowid
+  ORDER BY
+    class              ASC,
+    module_import_path ASC,
+    relative_num_parts ASC,
+    relative_path      ASC;---
 
+-- part is a directed acyclic graph of all slash separated parts of all package
+-- import paths. It is used to implement searching for packages by partial
+-- paths.
+--
+-- parent_id is the parent part. This is NULL for root parts.
+--
+-- name is the part's name.
+--
+-- package_id is the package the part belongs to. This is not NULL for leaf
+-- parts only.
+--
+-- path_depth is the number of parts in the part's path, including itself.
 CREATE TABLE part (
   rowid      INTEGER PRIMARY KEY,
-  parent_id  INT     REFERENCES part(rowid) 
-                      ON DELETE CASCADE 
+  parent_id  INT     REFERENCES part(rowid)
+                      ON DELETE CASCADE
                       ON UPDATE CASCADE,
   name       TEXT    NOT NULL CHECK (name != ''),
-  package_id INT REFERENCES package(rowid) 
+  package_id INT REFERENCES package(rowid)
                    ON DELETE SET NULL
                    ON UPDATE CASCADE,
   path_depth INT NOT NULL CHECK (path_depth > 0),
   UNIQUE(parent_id, name)
-);
+);---
 
-CREATE        INDEX part_idx_name           ON part(name);
-CREATE        INDEX part_idx_package_id     ON part(package_id);
-CREATE UNIQUE INDEX part_idx_parent_id_name ON part(parent_id, name) WHERE parent_id IS NOT NULL;
-CREATE UNIQUE INDEX part_idx_root_name      ON part(name)            WHERE parent_id IS NULL;
+CREATE        INDEX part_idx_name           ON part(name);---
+CREATE        INDEX part_idx_package_id     ON part(package_id);---
+CREATE UNIQUE INDEX part_idx_parent_id_name ON part(parent_id, name) WHERE parent_id IS NOT NULL;---
+CREATE UNIQUE INDEX part_idx_root_name      ON part(name)            WHERE parent_id IS NULL;---
 
+-- part_package is a many-to-many relationship between part and package. This
+-- can be used to find all packages that contain a part, or all parts that make
+-- up a package's import path.
+--
+-- part_id is the part's rowid.
+--
+-- package_id is the package's rowid.
 CREATE TABLE part_package (
   part_id    INT NOT NULL
-                 REFERENCES part(rowid) 
-                   ON DELETE CASCADE 
+                 REFERENCES part(rowid)
+                   ON DELETE CASCADE
                    ON UPDATE CASCADE,
   package_id INT NOT NULL
-                 REFERENCES package(rowid) 
-                   ON DELETE CASCADE 
+                 REFERENCES package(rowid)
+                   ON DELETE CASCADE
                    ON UPDATE CASCADE,
   PRIMARY KEY(part_id, package_id)
-) WITHOUT ROWID;
+) WITHOUT ROWID;---
 
-CREATE INDEX part_package_idx_package_id ON part_package(package_id);
+CREATE INDEX part_package_idx_package_id ON part_package(package_id, part_id);---
 
+-- part_path is a transitive closure of part, relating all parts to all of
+-- their anscestors and descendants. A part is an ancestor and descendent of
+-- itself.
+--
+-- descendant_id is the descendant part's rowid.
+--
+-- ancestor_id is the ancestor part's rowid.
+--
+-- distance is the number of parts between the descendant and ancestor.
 CREATE TABLE part_path (
   descendant_id INT NOT NULL
-                    REFERENCES part(rowid) 
-                      ON DELETE CASCADE 
+                    REFERENCES part(rowid)
+                      ON DELETE CASCADE
                       ON UPDATE CASCADE,
   ancestor_id   INT NOT NULL
-                    REFERENCES part(rowid) 
-                      ON DELETE CASCADE 
+                    REFERENCES part(rowid)
+                      ON DELETE CASCADE
                       ON UPDATE CASCADE,
   distance      INT NOT NULL CHECK (distance >= 0),
 
   PRIMARY KEY(descendant_id, ancestor_id)
-) WITHOUT ROWID;
+) WITHOUT ROWID;---
 
-CREATE INDEX part_path_idx_ancestor_id         ON part_path(ancestor_id, descendant_id, distance);
-CREATE INDEX part_path_idx_descendant_id       ON part_path(descendant_id, ancestor_id, distance);
-CREATE INDEX part_path_idx_distance_descendant ON part_path(distance, descendant_id, ancestor_id);
-CREATE INDEX part_path_idx_distance_ancestor   ON part_path(distance, ancestor_id, descendant_id);
+CREATE INDEX part_path_idx_ancestor_id         ON part_path(ancestor_id, descendant_id, distance);---
+CREATE INDEX part_path_idx_distance_descendant ON part_path(distance, descendant_id, ancestor_id);---
+CREATE INDEX part_path_idx_distance_ancestor   ON part_path(distance, ancestor_id, descendant_id);---
 
--- This view exists solely to allow for an INSTEAD OF INSERT trigger to be used
--- to split a package path into parts.
-CREATE VIEW package_part_split AS
-  SELECT 
-    package_id, total_num_parts, 0 AS path_depth, 
-    NULL AS part_parent_id, '' AS part_name, package_import_path AS remaining_path FROM
-    module_package;
+-- package_part_split is a view that exists purely to allow for an INSTEAD OF
+-- trigger to be used, which automatically splits a package path into parts.
+CREATE VIEW package_part_split (
+    package_id,
+    total_num_parts,
+    path_depth,
+    part_parent_id,
+    part_name,
+    remaining_path
+  ) AS
+  VALUES (
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL
+  );---
 
--- This trigger kicks off the recursive trigger to split a package path into
--- parts.
-CREATE TRIGGER package_insert_to_package_part_split_insert 
-  AFTER INSERT ON package 
+-- insert_package_part_split_on_insert_package is a trigger that fires whenever
+-- a new package is inserted.
+--
+-- This initiates a recursive trigger chain that splits the package's path and
+-- inserts them into the part table.
+CREATE TRIGGER insert_package_part_split_on_insert_package
+  AFTER INSERT ON package
   BEGIN
     INSERT INTO package_part_split(
-      package_id, total_num_parts, path_depth, 
-      part_parent_id, part_name, remaining_path)
-      SELECT 
-        new.rowid AS package_id, total_num_parts, 1 AS path_depth, 
-        NULL AS part_parent_id, substr(remaining_path, 1, slash-1) AS part_name, substr(remaining_path, slash+1) AS remaining_path
-      FROM (
-        SELECT 
-          total_num_parts, remaining_path, instr(remaining_path, '/') AS slash
-          FROM (
-            SELECT 
-              total_num_parts, package_import_path || '/' AS remaining_path
-            FROM module_package WHERE package_id = new.rowid
-          )
-      );
-  END;
+      package_id,
+      total_num_parts,
+      path_depth,
+      part_parent_id,
+      part_name,
+      remaining_path
+    )
+    SELECT
+      new.rowid,
+      total_num_parts,
+      1,
+      NULL,
+      substr(remaining_path, 1, slash-1),
+      substr(remaining_path, slash+1)
+    FROM (
+      -- Get the position of the first '/' in the package import path.
+      SELECT
+        total_num_parts,
+        remaining_path,
+        instr(remaining_path, '/') AS slash
+        FROM (
+          -- Get the package import path and append a '/'.
+          SELECT
+            total_num_parts,
+            package_import_path || '/' AS remaining_path
+          FROM
+            module_package
+          WHERE
+            package_id = new.rowid
+        )
+    );
+  END;---
 
--- This trigger splits a package path into parts.
-CREATE TRIGGER package_part_split_insert_to_part_insert 
-  INSTEAD OF INSERT ON package_part_split 
+-- insert_part_insert_part_package_insert_package_part_split_on_insert_package_part_split
+-- is a recursive trigger that fires instead of inserting to the
+-- package_part_split view.
+--
+-- It inserts the current part into the part and part_package tables.
+--
+-- It then inserts the next part, if any, into the package_part_split view.
+CREATE TRIGGER insert_part_insert_part_package_insert_package_part_split_on_insert_package_part_split
+  INSTEAD OF INSERT ON package_part_split
   BEGIN
-    INSERT INTO part(name, parent_id, path_depth, package_id)
-      SELECT new.part_name, new.part_parent_id, new.path_depth, iif(new.total_num_parts=new.path_depth, new.package_id, NULL)
-        WHERE new.part_name != ''
-      ON CONFLICT DO 
-        UPDATE SET package_id = excluded.package_id 
-          WHERE excluded.package_id IS NOT NULL;
+    INSERT INTO part(
+      name,
+      parent_id,
+      path_depth,
+      package_id
+    )
+      SELECT
+        new.part_name,
+        new.part_parent_id,
+        new.path_depth,
+        iif(new.total_num_parts=new.path_depth, new.package_id, NULL) -- only set the package_id for the final part
+      WHERE
+        new.part_name != '' -- ignore empty parts, which occurs on the final part
+    ON CONFLICT DO
+      UPDATE SET
+        package_id = excluded.package_id
+      WHERE
+        excluded.package_id IS NOT NULL; -- only update the package_id if it is not NULL
 
-    INSERT INTO part_package(part_id, package_id)
-      SELECT new.part_parent_id, new.package_id 
-        WHERE new.part_parent_id IS NOT NULL;
+    INSERT INTO part_package(
+      part_id,
+      package_id
+    )
+      SELECT
+        new.part_parent_id,
+        new.package_id
+      WHERE
+        new.part_parent_id IS NOT NULL;
 
     INSERT INTO package_part_split(
-      package_id, total_num_parts, path_depth, 
-      part_parent_id, 
-      part_name, remaining_path)
-      SELECT 
-        new.package_id, new.total_num_parts, new.path_depth+1, 
-        (SELECT rowid FROM part WHERE parent_id IS new.part_parent_id AND name = new.part_name) AS part_parent_id,
-        substr(new.remaining_path, 1, slash-1), 
+      package_id,
+      total_num_parts,
+      path_depth,
+      part_parent_id,
+      part_name,
+      remaining_path
+    )
+      SELECT
+        new.package_id,
+        new.total_num_parts,
+        new.path_depth+1,
+        part_parent_id,
+        substr(new.remaining_path, 1, slash-1),
         substr(new.remaining_path, slash+1)
-      FROM (SELECT instr(new.remaining_path, '/') AS slash)
-      WHERE new.path_depth <= new.total_num_parts;
-  END;
+      FROM (
+        -- Get the position of the first '/' in the remaining path and the
+        -- rowid of the current part, as the parent id of the next part.
+        SELECT
+          instr(new.remaining_path, '/') AS slash,
+          rowid AS part_parent_id
+        FROM
+          part
+        WHERE
+          parent_id IS new.part_parent_id
+        AND
+          name = new.part_name
+      )
+      WHERE
+        new.path_depth <= new.total_num_parts;
+  END;---
 
--- Update part_path table after a part is inserted.
-CREATE TRIGGER part_insert_to_part_path_insert 
-  AFTER INSERT ON part 
+-- insert_part_path_on_insert_part is a trigger that fires whenever a new part
+-- is inserted into the part table. It populates the part_path table with the
+-- new part and all of its ancestors.
+CREATE TRIGGER insert_part_path_on_insert_part
+  AFTER INSERT ON part
   BEGIN
     INSERT INTO part_path(descendant_id, ancestor_id, distance)
       VALUES (new.rowid, new.rowid, 0) UNION ALL
       SELECT new.rowid, ancestor_id, distance + 1
         FROM part_path
         WHERE descendant_id = new.parent_id;
-  END;
+  END;---
 
--- Remove leaf nodes not referenced by any package.
-CREATE TRIGGER part_update_package_id_null_to_part_delete 
-  AFTER UPDATE OF package_id ON part 
-    WHEN new.package_id IS NULL 
+-- delete_part_path_on_delete_part is a trigger that fires whenever a part is
+-- updated such that its package_id is set to NULL. It deletes the part if it
+-- has no children.
+CREATE TRIGGER delete_part_on_update_part_package_id_null
+  AFTER UPDATE OF package_id ON part
+    WHEN new.package_id IS NULL
   BEGIN
-    DELETE FROM part WHERE 
-      package_id IS NULL AND
-      rowid NOT IN (SELECT DISTINCT parent_id FROM part WHERE parent_id IS NOT NULL);
-  END;
+    DELETE FROM
+      part
+    WHERE
+      rowid = new.rowid
+    AND
+      NOT EXISTS (
+        SELECT
+          1
+        FROM
+          part
+        WHERE
+          parent_id IS new.rowid
+      );
+  END;---
 
--- Recursively remove leaf nodes not referenced by any package.
-CREATE TRIGGER part_delete_to_part_delete 
-  AFTER DELETE ON part 
+-- delete_part_on_delete_part recursively deletes leaf parts that have a NULL
+-- package_id.
+CREATE TRIGGER delete_part_on_delete_part
+  AFTER DELETE ON part
   BEGIN
-    DELETE FROM part WHERE 
-      package_id IS NULL AND
-      rowid NOT IN (SELECT DISTINCT parent_id FROM part WHERE parent_id IS NOT NULL);
-  END;
+    DELETE FROM
+      part
+    WHERE
+      package_id IS NULL
+    AND
+      NOT EXISTS (
+        SELECT
+          1
+        FROM
+          part
+        WHERE
+          parent_id IS rowid
+      );
+  END;---

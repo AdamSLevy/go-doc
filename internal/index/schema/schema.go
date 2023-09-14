@@ -1,6 +1,8 @@
 package schema
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	_ "embed"
@@ -19,8 +21,8 @@ func OpenDB(ctx context.Context, dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	if err := initialize(ctx, db); err != nil {
-		if err := db.Close(); err != nil {
-			dlog.Printf("failed to close database: %v", err)
+		if cerr := db.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("failed to close database: %w", cerr))
 		}
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
@@ -30,6 +32,14 @@ func OpenDB(ctx context.Context, dbPath string) (*sql.DB, error) {
 func initialize(ctx context.Context, db *sql.DB) (rerr error) {
 	// Only proceed if the database matches our application ID.
 	if err := assertApplicationID(ctx, db); err != nil {
+		return err
+	}
+
+	// Enable foreign keys and recursive triggers.
+	if err := enableForeignKeys(ctx, db); err != nil {
+		return err
+	}
+	if err := enableRecursiveTriggers(ctx, db); err != nil {
 		return err
 	}
 
@@ -45,7 +55,7 @@ func initialize(ctx context.Context, db *sql.DB) (rerr error) {
 	if userVersion != 0 {
 		return fmt.Errorf("database has incorrect user_version")
 	}
-	dlog.Printf("Applying schema...")
+	dlog.Printf("Applying schema (0x%X)...", uint32(schemaCRC))
 
 	schemaVersion, err := getSchemaVersion(ctx, db)
 	if err != nil {
@@ -55,21 +65,13 @@ func initialize(ctx context.Context, db *sql.DB) (rerr error) {
 		return fmt.Errorf("database schema_version (%d) is not zero", schemaVersion)
 	}
 
-	if err := enableForeignKeys(ctx, db); err != nil {
-		return err
-	}
-
-	if err := enableRecursiveTriggers(ctx, db); err != nil {
-		return err
-	}
-
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer CommitOrRollback(tx, &rerr)
 
-	return applySchema(ctx, db)
+	return applySchema(ctx, tx)
 }
 
 func CommitOrRollback(tx *sql.Tx, rerr *error) {
@@ -85,23 +87,73 @@ func CommitOrRollback(tx *sql.Tx, rerr *error) {
 }
 
 func applySchema(ctx context.Context, db Querier) error {
-	_, err := db.ExecContext(ctx, schema)
-	if err != nil {
-		return fmt.Errorf("failed to apply schema: %w", err)
+	if err := execSplit(ctx, db, schema); err != nil {
+		return err
 	}
-
-	dlog.Printf("schema CRC: %d", schemaCRC)
 	return setUserVersion(ctx, db, schemaCRC)
 }
 
 // schema is the SQL schema for the index database.
 //
 //go:embed schema.sql
-var schema string
+var schema []byte
 
 // schemaCRC is the CRC32 checksum of schema.
-var schemaCRC = func() uint32 {
+var schemaCRC int32 = func() int32 {
 	crc := crc32.NewIEEE()
-	crc.Write([]byte(schema))
-	return crc.Sum32()
+	crc.Write(schema)
+	return int32(crc.Sum32())
 }()
+
+func execSplit(ctx context.Context, db Querier, sql []byte) error {
+	scanner := bufio.NewScanner(bytes.NewReader(sql))
+	scanner.Split(sqlSplit)
+	for scanner.Scan() {
+		query := scanner.Text()
+		if query == "" {
+			continue
+		}
+		_, err := db.ExecContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("failed to apply query: %w\n%s\n", err, query)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to split SQL statements: %w", err)
+	}
+	return nil
+}
+
+const stmtDelimiter = ";---"
+
+func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	defer func() {
+		if err != nil || token == nil {
+			return
+		}
+		// Trim the token of any leading or trailing whitespace.
+		token = bytes.TrimSpace(token)
+		// Trim comment lines.
+		const commentPrefix = "--"
+		for adv, tkn := 0, []byte(commentPrefix); err == nil &&
+			((len(tkn) == 0 && adv > 0) ||
+				bytes.HasPrefix(tkn, []byte(commentPrefix))); adv, tkn, err = bufio.ScanLines(token, true) {
+			token = token[adv:]
+		}
+	}()
+
+	stmtDelim := bytes.Index(data, []byte(stmtDelimiter))
+	if stmtDelim == -1 {
+		// No complete statement yet...
+		if atEOF {
+			// That's everything... don't treat this as an error to
+			// allow for trailing whitespace, comments, or
+			// statements that don't use the stmtDelimeter.
+			return len(data), data, nil
+		}
+		// Ask for more data so we can find the EOL.
+		return 0, nil, nil
+	}
+	// We found a semi-colon...
+	return stmtDelim + 1, data[:stmtDelim+1], nil
+}

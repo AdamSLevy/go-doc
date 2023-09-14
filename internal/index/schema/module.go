@@ -18,7 +18,6 @@ const (
 	ClassStdlib Class = iota
 	ClassLocal
 	ClassRequired
-	ClassNotRequired
 )
 
 func ClassString(c Class) string {
@@ -29,8 +28,6 @@ func ClassString(c Class) string {
 		return "local"
 	case ClassRequired:
 		return "required"
-	case ClassNotRequired:
-		return "not required"
 	default:
 		return "unknown class"
 	}
@@ -49,11 +46,11 @@ func ParseClassVendor(root godoc.PackageDir) (Class, bool) {
 	}
 	return ClassLocal, false
 }
+func isVendor(dir string) bool { return filepath.Base(dir) == "vendor" }
 func parseVersion(dir string) (string, bool) {
 	_, version, found := strings.Cut(filepath.Base(dir), "@")
 	return version, found
 }
-func isVendor(dir string) bool { return filepath.Base(dir) == "vendor" }
 
 type Module struct {
 	ID         int64
@@ -64,28 +61,23 @@ type Module struct {
 }
 
 func SyncModules(ctx context.Context, db Querier, required []Module) (needSync []Module, _ error) {
-	if err := createTempModuleTable(ctx, db); err != nil {
-		return nil, fmt.Errorf("failed to create temporary module table: %w", err)
+	if err := syncInit(ctx, db); err != nil {
+		return nil, fmt.Errorf("failed to initialize sync: %w", err)
 	}
 	if err := insertModules(ctx, db, required); err != nil {
-		return nil, fmt.Errorf("failed to insert temporary modules: %w", err)
+		return nil, fmt.Errorf("failed to insert modules: %w", err)
 	}
 	if err := pruneModules(ctx, db); err != nil {
 		return nil, fmt.Errorf("failed to prune modules: %w", err)
 	}
-	needSync, err := selectModulesNeedSync(ctx, db, make([]Module, 0, len(required)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to upsert modules: %w", err)
-	}
-	return needSync, nil
+	return selectModulesNeedSync(ctx, db, make([]Module, 0, len(required)))
 }
 
 //go:embed sync_init.sql
-var syncInitQuery string
+var syncInitQuery []byte
 
-func createTempModuleTable(ctx context.Context, db Querier) error {
-	_, err := db.ExecContext(ctx, syncInitQuery)
-	return err
+func syncInit(ctx context.Context, db Querier) error {
+	return execSplit(ctx, db, syncInitQuery)
 }
 
 func insertModules(ctx context.Context, db Querier, mods []Module) (rerr error) {
