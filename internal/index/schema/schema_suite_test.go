@@ -27,6 +27,7 @@ func tempDBPath() string {
 		dbName = "index.sqlite3"
 	)
 	tempDir := GinkgoT().TempDir()
+	// tempDir = "."
 	return dbFile + filepath.Join(tempDir, dbName)
 }
 func initDB(ctx context.Context, dbPath string) *sql.DB {
@@ -34,7 +35,10 @@ func initDB(ctx context.Context, dbPath string) *sql.DB {
 	By("opening db " + dbPath)
 	db, err := OpenDB(ctx, dbPath)
 	Expect(err).To(Succeed(), "failed to open database")
-	Expect(db.PingContext(ctx)).To(Succeed(), "failed to ping database")
+	DeferCleanup(func() {
+		By("closing the database")
+		Expect(db.Close()).To(Succeed(), "failed to close database")
+	})
 
 	applicationID, err := getApplicationID(ctx, db)
 	Expect(err).To(Succeed(), "failed to get application_id pragma")
@@ -51,10 +55,6 @@ func initDB(ctx context.Context, dbPath string) *sql.DB {
 	Expect(getPragma(ctx, db, pragmaRecursiveTriggers, &recursiveTriggers)).To(Succeed(), "failed to get recursive_triggers pragma")
 	Expect(recursiveTriggers).To(BeTrue(), "recursive_triggers should be enabled")
 
-	DeferCleanup(func() {
-		By("closing the database")
-		Expect(db.Close()).To(Succeed(), "failed to close database")
-	})
 	return db
 }
 
@@ -266,116 +266,7 @@ var _ = Describe("Schema", func() {
 			})
 		})
 	})
-
-	XDescribe("Part", func() {
-		When("a package is removed", func() {
-			It("should remove the package's parts not used by any other package", func(ctx context.Context) {
-				By("re-syncing packages")
-				allPkgs = allPkgs[:len(allPkgs)-2]
-				err := SyncPackages(ctx, db, allPkgs)
-				Expect(err).To(Succeed(), "failed to sync packages")
-				Expect(SelectAllPackages(ctx, db, nil)).
-					To(Equal(allPkgs), "SelectAllPackages should return all packages")
-
-				By("selecting the parts")
-				row := db.QueryRowContext(ctx, `
-SELECT count(*) FROM part WHERE name IN ('extensions', 'global', 'table');
-`)
-				Expect(row.Err()).To(Succeed(), "failed to select parts")
-				var count int64
-				Expect(row.Scan(&count)).To(Succeed(), "failed to scan count of parts")
-				Expect(count).To(BeZero(), "parts should be removed")
-			})
-		})
-		DescribeTable("", func(ctx context.Context, packageID int64, expParts []Part) {
-			parts, err := SelectPackageParts(ctx, db, packageID, nil)
-			Expect(err).To(Succeed(), "failed to select parts")
-			Expect(parts).To(Equal(expParts), "parts do not match")
-		},
-			Entry(nil, int64(1), []Part{{
-				ID:        1,
-				PackageID: nil,
-				ParentID:  nil,
-				Name:      "github.com",
-			}, {
-				ID:        2,
-				PackageID: nil,
-				ParentID:  int64Ptr(1),
-				Name:      "stretchr",
-			}, {
-				ID:        3,
-				PackageID: int64Ptr(1),
-				ParentID:  int64Ptr(2),
-				Name:      "testify",
-			}}),
-			Entry(nil, int64(2), []Part{{
-				ID:        1,
-				PackageID: nil,
-				ParentID:  nil,
-				Name:      "github.com",
-			}, {
-				ID:        2,
-				PackageID: nil,
-				ParentID:  int64Ptr(1),
-				Name:      "stretchr",
-			}, {
-				ID:        3,
-				PackageID: int64Ptr(1),
-				ParentID:  int64Ptr(2),
-				Name:      "testify",
-			}, {
-				ID:        4,
-				PackageID: int64Ptr(2),
-				ParentID:  int64Ptr(3),
-				Name:      "assert",
-			}}),
-			Entry(nil, int64(3), []Part{{
-				ID:        1,
-				PackageID: nil,
-				ParentID:  nil,
-				Name:      "github.com",
-			}, {
-				ID:        2,
-				PackageID: nil,
-				ParentID:  int64Ptr(1),
-				Name:      "stretchr",
-			}, {
-				ID:        3,
-				PackageID: int64Ptr(1),
-				ParentID:  int64Ptr(2),
-				Name:      "testify",
-			}, {
-				ID:        5,
-				PackageID: int64Ptr(3),
-				ParentID:  int64Ptr(3),
-				Name:      "require",
-			}}),
-			Entry(nil, int64(4), []Part{{
-				ID:        1,
-				PackageID: nil,
-				ParentID:  nil,
-				Name:      "github.com",
-			}, {
-				ID:        6,
-				PackageID: nil,
-				ParentID:  int64Ptr(1),
-				Name:      "muesli",
-			}, {
-				ID:        7,
-				PackageID: nil,
-				ParentID:  int64Ptr(6),
-				Name:      "reflow",
-			}, {
-				ID:        8,
-				PackageID: int64Ptr(4),
-				ParentID:  int64Ptr(7),
-				Name:      "indent",
-			}}),
-		)
-	})
 })
-
-func int64Ptr(i int64) *int64 { return &i }
 
 func initModules() []Module {
 	return []Module{{

@@ -136,13 +136,15 @@ CREATE VIEW module_package AS
 CREATE TABLE part (
   rowid      INTEGER PRIMARY KEY,
   parent_id  INT     REFERENCES part(rowid)
-                      ON DELETE CASCADE
-                      ON UPDATE CASCADE,
+                       ON DELETE CASCADE
+                       ON UPDATE CASCADE,
   name       TEXT    NOT NULL CHECK (name != ''),
-  package_id INT REFERENCES package(rowid)
-                   ON DELETE SET NULL
-                   ON UPDATE CASCADE,
-  path_depth INT NOT NULL CHECK (path_depth > 0),
+  package_id INT     UNIQUE 
+                     REFERENCES package(rowid)
+                       ON DELETE SET NULL
+                       ON UPDATE CASCADE,
+  path_depth INT     NOT NULL CHECK (path_depth > 0),
+
   UNIQUE(parent_id, name)
 );---
 
@@ -226,27 +228,28 @@ CREATE VIEW package_part_split (
 CREATE TRIGGER insert_package_part_split_on_insert_package
   AFTER INSERT ON package
   BEGIN
-    INSERT INTO package_part_split(
-      package_id,
-      total_num_parts,
-      path_depth,
-      part_parent_id,
-      part_name,
-      remaining_path
-    )
-    SELECT
-      new.rowid,
-      total_num_parts,
-      1,
-      NULL,
-      substr(remaining_path, 1, slash-1),
-      substr(remaining_path, slash+1)
-    FROM (
-      -- Get the position of the first '/' in the package import path.
-      SELECT
+    INSERT INTO 
+      package_part_split(
+        package_id,
         total_num_parts,
-        remaining_path,
-        instr(remaining_path, '/') AS slash
+        path_depth,
+        part_parent_id,
+        part_name,
+        remaining_path
+      )
+      SELECT
+        new.rowid,
+        total_num_parts,
+        1,
+        NULL,
+        substr(remaining_path, 1, slash-1),
+        substr(remaining_path, slash+1)
+      FROM (
+        -- Get the position of the first '/' in the package import path.
+        SELECT
+          total_num_parts,
+          remaining_path,
+          instr(remaining_path, '/') AS slash
         FROM (
           -- Get the package import path and append a '/'.
           SELECT
@@ -257,7 +260,7 @@ CREATE TRIGGER insert_package_part_split_on_insert_package
           WHERE
             package_id = new.rowid
         )
-    );
+      );
   END;---
 
 -- insert_part_insert_part_package_insert_package_part_split_on_insert_package_part_split
@@ -270,12 +273,13 @@ CREATE TRIGGER insert_package_part_split_on_insert_package
 CREATE TRIGGER insert_part_insert_part_package_insert_package_part_split_on_insert_package_part_split
   INSTEAD OF INSERT ON package_part_split
   BEGIN
-    INSERT INTO part(
-      name,
-      parent_id,
-      path_depth,
-      package_id
-    )
+    INSERT INTO 
+      part(
+        name,
+        parent_id,
+        path_depth,
+        package_id
+      )
       SELECT
         new.part_name,
         new.part_parent_id,
@@ -289,24 +293,26 @@ CREATE TRIGGER insert_part_insert_part_package_insert_package_part_split_on_inse
       WHERE
         excluded.package_id IS NOT NULL; -- only update the package_id if it is not NULL
 
-    INSERT INTO part_package(
-      part_id,
-      package_id
-    )
+    INSERT INTO 
+      part_package(
+        part_id,
+        package_id
+      )
       SELECT
         new.part_parent_id,
         new.package_id
       WHERE
         new.part_parent_id IS NOT NULL;
 
-    INSERT INTO package_part_split(
-      package_id,
-      total_num_parts,
-      path_depth,
-      part_parent_id,
-      part_name,
-      remaining_path
-    )
+    INSERT INTO 
+      package_part_split(
+        package_id,
+        total_num_parts,
+        path_depth,
+        part_parent_id,
+        part_name,
+        remaining_path
+      )
       SELECT
         new.package_id,
         new.total_num_parts,
@@ -327,8 +333,8 @@ CREATE TRIGGER insert_part_insert_part_package_insert_package_part_split_on_inse
         AND
           name = new.part_name
       )
-      WHERE
-        new.path_depth <= new.total_num_parts;
+    WHERE
+      new.path_depth <= new.total_num_parts;
   END;---
 
 -- insert_part_path_on_insert_part is a trigger that fires whenever a new part
@@ -337,11 +343,26 @@ CREATE TRIGGER insert_part_insert_part_package_insert_package_part_split_on_inse
 CREATE TRIGGER insert_part_path_on_insert_part
   AFTER INSERT ON part
   BEGIN
-    INSERT INTO part_path(descendant_id, ancestor_id, distance)
-      VALUES (new.rowid, new.rowid, 0) UNION ALL
-      SELECT new.rowid, ancestor_id, distance + 1
-        FROM part_path
-        WHERE descendant_id = new.parent_id;
+    INSERT INTO 
+      part_path(
+        descendant_id, 
+        ancestor_id, 
+        distance
+      )
+    VALUES (
+      new.rowid, 
+      new.rowid, 
+      0
+    ) 
+    UNION ALL
+    SELECT 
+      new.rowid, 
+      ancestor_id, 
+      distance + 1
+    FROM 
+      part_path
+    WHERE 
+      descendant_id = new.parent_id;
   END;---
 
 -- delete_part_path_on_delete_part is a trigger that fires whenever a part is
@@ -360,9 +381,9 @@ CREATE TRIGGER delete_part_on_update_part_package_id_null
         SELECT
           1
         FROM
-          part
+          part AS p
         WHERE
-          parent_id IS new.rowid
+          p.parent_id IS new.rowid
       );
   END;---
 
@@ -380,8 +401,8 @@ CREATE TRIGGER delete_part_on_delete_part
         SELECT
           1
         FROM
-          part
+          part AS p
         WHERE
-          parent_id IS rowid
+          p.parent_id IS part.rowid
       );
   END;---
