@@ -6,40 +6,50 @@ import (
 	"os"
 
 	"aslevy.com/go-doc/internal/godoc"
+	"aslevy.com/go-doc/internal/index/schema"
 	"aslevy.com/go-doc/internal/vendored"
 )
 
-func (idx *Index) syncVendoredModules(ctx context.Context, vendorRoot godoc.PackageDir) ([]int64, error) {
+func (idx *Index) syncVendoredModules(ctx context.Context, sync *schema.Sync, vendorRoot godoc.PackageDir) error {
 	const vendor = true
-	modID, needsSync, err := idx.upsertModule(ctx, vendorRoot, classLocal, vendor)
+	needsSync, err := sync.AddRequiredModules(schema.Module{
+		ImportPath: vendorRoot.ImportPath,
+		Dir:        vendorRoot.Dir,
+		Class:      schema.ClassLocal,
+		Vendor:     true,
+	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	if !needsSync && idx.vendorUnchanged(vendorRoot) {
-		return idx.vendoredModuleIDs(ctx)
+	if len(needsSync) == 0 && idx.vendorUnchanged(vendorRoot) {
+		return nil
 	}
 
-	modIDs := []int64{modID}
-	if err := vendored.Parse(ctx, vendorRoot.Dir, func(ctx context.Context, mod godoc.PackageDir, pkgs ...godoc.PackageDir) error {
-		pkgKeep := make([]int64, len(pkgs))
-		modID, _, err := idx.upsertModule(ctx, mod, classRequired, vendor)
+	return vendored.Parse(ctx, vendorRoot.Dir, func(ctx context.Context, mod godoc.PackageDir, pkgs ...godoc.PackageDir) error {
+		needsSync, err := sync.AddRequiredModules(schema.Module{
+			ImportPath: mod.ImportPath,
+			Dir:        mod.Dir,
+			Class:      schema.ClassLocal,
+			Vendor:     true,
+		})
 		if err != nil {
 			return err
 		}
-		modIDs = append(modIDs, modID)
+		if len(needsSync) == 0 {
+			return nil
+		}
 		for _, pkg := range pkgs {
-			pkgID, err := idx.syncPackage(ctx, modID, mod, pkg)
+			err := sync.AddPackages(schema.Package{
+				ModuleID:     needsSync[0].ID,
+				RelativePath: pkg.ImportPath,
+			})
 			if err != nil {
 				return err
 			}
-			pkgKeep = append(pkgKeep, pkgID)
 		}
-		return idx.prunePackages(ctx, modID, pkgKeep)
-	}); err != nil {
-		return nil, err
-	}
-	return modIDs, nil
+		return nil
+	})
 }
 
 func (idx *Index) vendorUnchanged(vendor godoc.PackageDir) bool {
@@ -49,24 +59,4 @@ func (idx *Index) vendorUnchanged(vendor godoc.PackageDir) bool {
 		return true
 	}
 	return idx.UpdatedAt.After(info.ModTime())
-}
-
-func (idx *Index) vendoredModuleIDs(ctx context.Context) ([]int64, error) {
-	const query = `SELECT rowid FROM module WHERE vendor = true;`
-	rows, err := idx.db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var modIDs []int64
-	for rows.Next() {
-		var modID int64
-		if err := rows.Scan(&modID); err != nil {
-			return nil, err
-		}
-		modIDs = append(modIDs, modID)
-	}
-
-	return modIDs, rows.Err()
 }

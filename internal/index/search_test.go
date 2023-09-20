@@ -11,6 +11,7 @@ import (
 
 	"aslevy.com/go-doc/internal/benchmark"
 	"aslevy.com/go-doc/internal/godoc"
+	"aslevy.com/go-doc/internal/index/schema"
 	"github.com/stretchr/testify/require"
 )
 
@@ -274,7 +275,7 @@ func (r *randomPartial) randomPartial() (string, error) {
 	return scanImportPath(r.rows)
 
 }
-func scanImportPath(rows sqlRow) (string, error) {
+func scanImportPath(rows schema.Scanner) (string, error) {
 	var path string
 	return path, rows.Scan(&path)
 }

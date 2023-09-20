@@ -41,7 +41,7 @@ func BenchmarkLoadSync_stdlib(b *testing.B) {
 		require.NoError(idx.Close())
 	})
 
-	b.Logf("index sync %+v", idx.metadata)
+	b.Logf("index sync %+v", idx.Metadata)
 }
 
 // BenchmarkLoadSync_InMemory_stdlib is like BenchmarkLoadSync_stdlib, but uses
@@ -60,7 +60,7 @@ func BenchmarkLoadSync_InMemory_stdlib(b *testing.B) {
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
 	})
-	b.Logf("index sync %+v", idx.metadata)
+	b.Logf("index sync %+v", idx.Metadata)
 }
 
 // BenchmarkLoadReSync_stdlib benchmarks the time it takes to re-sync an
@@ -87,7 +87,7 @@ func BenchmarkLoadReSync_stdlib(b *testing.B) {
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
 	})
-	b.Logf("index sync %+v", idx.metadata)
+	b.Logf("index sync %+v", idx.Metadata)
 }
 
 // BenchmarkLoadForceSync_stdlib benchmarks the time it takes to re-sync an
@@ -114,7 +114,7 @@ func BenchmarkLoadForceSync_stdlib(b *testing.B) {
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
 	})
-	b.Logf("index sync %+v", idx.metadata)
+	b.Logf("index sync %+v", idx.Metadata)
 }
 
 // BenchmarkLoadSkipSync_stdlib benchmarks the time it takes to load an
@@ -141,5 +141,5 @@ func BenchmarkLoadSkipSync_stdlib(b *testing.B) {
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
 	})
-	b.Logf("index sync %+v", idx.metadata)
+	b.Logf("index sync %+v", idx.Metadata)
 }
