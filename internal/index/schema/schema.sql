@@ -48,7 +48,10 @@ CREATE TABLE module (
       length(trim(import_path, '/'))
       - length(replace(trim(import_path, '/'), '/', ''))
       + iif(trim(import_path, '/') = '', 0, 1)
-    ) STORED
+    ) STORED,
+
+  sync   BOOL DEFAULT TRUE,
+  keep   BOOL DEFAULT TRUE
 );---
 
 CREATE INDEX module_class ON module(class, import_path);---
@@ -73,6 +76,8 @@ CREATE TABLE package (
       - length(replace(trim(relative_path, '/'), '/', ''))
       + iif(trim(relative_path, '/') = '', 0, 1)
     ) STORED,
+
+  keep BOOL DEFAULT TRUE,
 
   UNIQUE(module_id, relative_path)
 );---
@@ -99,27 +104,39 @@ CREATE TABLE package (
 -- relative_num_parts is the number of slash separated parts in the package's relative_path.
 --
 -- total_num_parts is the number of slash separated parts in the package_import_path.
-CREATE VIEW module_package AS
-  SELECT
-    package.rowid AS package_id,
-    trim(module.import_path || '/' || package.relative_path, '/') as package_import_path,
-    rtrim(module.dir        || '/' || package.relative_path, '/') as package_dir,
-    package.module_id,
-    module.import_path as module_import_path,
+CREATE VIEW 
+  module_package (
+    package_id,
+    package_import_path,
+    package_dir,
+    module_id,
+    module_import_path,
     relative_path,
     class,
     vendor,
-    package.num_parts                    as relative_num_parts,
-    package.num_parts + module.num_parts as total_num_parts
-  FROM
-    package, module
-  ON
-    package.module_id=module.rowid
-  ORDER BY
-    class              ASC,
-    module_import_path ASC,
-    relative_num_parts ASC,
-    relative_path      ASC;---
+    relative_num_parts,
+    total_num_parts
+  )
+AS SELECT
+  package.rowid AS package_id,
+  trim(module.import_path || '/' || package.relative_path, '/') AS package_import_path,
+  rtrim(module.dir        || '/' || package.relative_path, '/') AS package_dir,
+  package.module_id AS module_id,
+  module.import_path AS module_import_path,
+  relative_path,
+  class,
+  vendor,
+  package.num_parts AS relative_num_parts,
+  package.num_parts + module.num_parts AS total_num_parts
+FROM
+  package, module
+ON
+  package.module_id=module.rowid
+ORDER BY
+  class              ASC,
+  module_import_path ASC,
+  relative_num_parts ASC,
+  relative_path      ASC;---
 
 -- part is a directed acyclic graph of all slash separated parts of all package
 -- import paths. It is used to implement searching for packages by partial
@@ -210,58 +227,62 @@ CREATE VIEW package_part_split (
     part_parent_id,
     part_name,
     remaining_path
-  ) AS
-  VALUES (
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL
-  );---
+  ) 
+AS 
+VALUES (
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL
+);---
 
 -- insert_package_part_split_on_insert_package is a trigger that fires whenever
 -- a new package is inserted.
 --
 -- This initiates a recursive trigger chain that splits the package's path and
 -- inserts them into the part table.
-CREATE TRIGGER insert_package_part_split_on_insert_package
-  AFTER INSERT ON package
-  BEGIN
-    INSERT INTO 
-      package_part_split(
-        package_id,
-        total_num_parts,
-        path_depth,
-        part_parent_id,
-        part_name,
-        remaining_path
-      )
+CREATE TRIGGER 
+  insert_package_part_split_on_insert_package
+AFTER 
+  INSERT ON 
+    package
+BEGIN
+  INSERT INTO 
+    package_part_split(
+      package_id,
+      total_num_parts,
+      path_depth,
+      part_parent_id,
+      part_name,
+      remaining_path
+    )
+    SELECT
+      new.rowid,
+      total_num_parts,
+      1,
+      NULL,
+      substr(remaining_path, 1, slash-1),
+      substr(remaining_path, slash+1)
+    FROM (
+      -- Get the position of the first '/' in the package import path.
       SELECT
-        new.rowid,
         total_num_parts,
-        1,
-        NULL,
-        substr(remaining_path, 1, slash-1),
-        substr(remaining_path, slash+1)
+        remaining_path,
+        instr(remaining_path, '/') AS slash
       FROM (
-        -- Get the position of the first '/' in the package import path.
+        -- Get the package import path and append a '/'.
         SELECT
           total_num_parts,
-          remaining_path,
-          instr(remaining_path, '/') AS slash
-        FROM (
-          -- Get the package import path and append a '/'.
-          SELECT
-            total_num_parts,
-            package_import_path || '/' AS remaining_path
-          FROM
-            module_package
-          WHERE
-            package_id = new.rowid
-        )
-      );
-  END;---
+          package_import_path || '/' AS remaining_path
+        FROM
+          module_package
+        WHERE
+          package_id = new.rowid
+      )
+    );
+END;---
 
 -- insert_part_insert_part_package_insert_package_part_split_on_insert_package_part_split
 -- is a recursive trigger that fires instead of inserting to the
@@ -340,69 +361,106 @@ CREATE TRIGGER insert_part_insert_part_package_insert_package_part_split_on_inse
 -- insert_part_path_on_insert_part is a trigger that fires whenever a new part
 -- is inserted into the part table. It populates the part_path table with the
 -- new part and all of its ancestors.
-CREATE TRIGGER insert_part_path_on_insert_part
-  AFTER INSERT ON part
-  BEGIN
-    INSERT INTO 
-      part_path(
-        descendant_id, 
-        ancestor_id, 
-        distance
-      )
-    VALUES (
-      new.rowid, 
-      new.rowid, 
-      0
-    ) 
-    UNION ALL
-    SELECT 
-      new.rowid, 
+CREATE TRIGGER 
+  insert_part_path_on_insert_part
+AFTER 
+  INSERT ON 
+    part
+BEGIN
+  INSERT INTO 
+    part_path(
+      descendant_id, 
       ancestor_id, 
-      distance + 1
-    FROM 
-      part_path
-    WHERE 
-      descendant_id = new.parent_id;
-  END;---
+      distance
+    )
+  VALUES (
+    new.rowid, 
+    new.rowid, 
+    0
+  ) 
+  UNION ALL
+  SELECT 
+    new.rowid, 
+    ancestor_id, 
+    distance + 1
+  FROM 
+    part_path
+  WHERE 
+    descendant_id = new.parent_id;
+END;---
 
 -- delete_part_path_on_delete_part is a trigger that fires whenever a part is
 -- updated such that its package_id is set to NULL. It deletes the part if it
 -- has no children.
-CREATE TRIGGER delete_part_on_update_part_package_id_null
-  AFTER UPDATE OF package_id ON part
-    WHEN new.package_id IS NULL
-  BEGIN
-    DELETE FROM
-      part
-    WHERE
-      rowid = new.rowid
-    AND
-      NOT EXISTS (
-        SELECT
-          1
-        FROM
-          part AS p
-        WHERE
-          p.parent_id IS new.rowid
-      );
-  END;---
+CREATE TRIGGER 
+  delete_part_on_update_part_package_id_null
+AFTER 
+  UPDATE OF 
+    package_id 
+  ON 
+    part
+  WHEN 
+    new.package_id IS NULL
+BEGIN
+  DELETE FROM
+    part
+  WHERE
+    rowid = new.rowid
+  AND
+    NOT EXISTS (
+      SELECT
+        1
+      FROM
+        part AS p
+      WHERE
+        p.parent_id IS new.rowid
+    );
+END;---
 
 -- delete_part_on_delete_part recursively deletes leaf parts that have a NULL
 -- package_id.
-CREATE TRIGGER delete_part_on_delete_part
-  AFTER DELETE ON part
-  BEGIN
-    DELETE FROM
-      part
-    WHERE
-      package_id IS NULL
-    AND
-      NOT EXISTS (
-        SELECT
-          1
-        FROM
-          part AS p
-        WHERE
-          p.parent_id IS part.rowid
-      );
-  END;---
+CREATE TRIGGER 
+  delete_part_on_delete_part
+AFTER 
+  DELETE ON 
+    part
+BEGIN
+  DELETE FROM
+    part
+  WHERE
+    package_id IS NULL
+  AND
+    NOT EXISTS (
+      SELECT
+        1
+      FROM
+        part AS p
+      WHERE
+        p.parent_id IS part.rowid
+    );
+END;---
+
+-- after_update_sync_true_on_main_module fires whenever a module is updated
+-- such that sync is set to TRUE. It sets package.keep to FALSE for all of the
+-- module's packages. As packages are re-synced, package.keep is set back to
+-- TRUE so that only packages that are no longer available in the module are
+-- left with keep set to FALSE, resulting in them being deleted to finalize
+-- a sync.
+CREATE TRIGGER
+  after_update_sync_true_on_main_module
+AFTER
+  UPDATE OF
+    sync
+  ON 
+    main.module
+  WHEN
+    new.sync = TRUE
+BEGIN
+  UPDATE
+   package
+  SET
+    keep = FALSE
+  WHERE
+    package.module_id = new.rowid;
+END;---
+

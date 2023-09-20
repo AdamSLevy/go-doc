@@ -60,90 +60,99 @@ type Module struct {
 	Vendor     bool
 }
 
-func SyncModules(ctx context.Context, db Querier, required []Module) (needSync []Module, _ error) {
-	if err := syncInit(ctx, db); err != nil {
-		return nil, fmt.Errorf("failed to initialize sync: %w", err)
-	}
-	if err := insertModules(ctx, db, required); err != nil {
-		return nil, fmt.Errorf("failed to insert modules: %w", err)
-	}
-	return selectModulesNeedSync(ctx, db, make([]Module, 0, len(required)))
+func (s *Sync) initInsertModuleStmt() error {
+	var err error
+	s.stmt.insertModule, err = s.tx.PrepareContext(s.ctx, `
+INSERT INTO 
+  main.module (
+    import_path, 
+    dir, 
+    class, 
+    vendor
+  )
+VALUES (
+  ?, ?, ?, ?
+) 
+ON CONFLICT (
+  import_path
+) 
+DO UPDATE SET
+  dir=excluded.dir,
+  class=excluded.class,
+  vendor=excluded.vendor,
+  sync=(dir != excluded.dir),
+  keep=TRUE
+RETURNING 
+  rowid,
+  sync
+;
+`)
+	return err
 }
 
-//go:embed sync_init.sql
-var syncInitQuery []byte
-
-func syncInit(ctx context.Context, db Querier) error {
-	return execSplit(ctx, db, syncInitQuery)
+func (s *Sync) insertModule(mod *Module) (needSync bool, _ error) {
+	row := s.stmt.insertModule.QueryRowContext(s.ctx, mod.ImportPath, mod.Dir, mod.Class, mod.Vendor)
+	if err := row.Err(); err != nil {
+		return false, fmt.Errorf("failed to insert module: %w", err)
+	}
+	if err := row.Scan(&mod.ID, &needSync); err != nil {
+		return false, fmt.Errorf("failed to scan inserted module: %w", err)
+	}
+	return needSync, nil
 }
 
-func insertModules(ctx context.Context, db Querier, mods []Module) (rerr error) {
-	stmt, err := db.PrepareContext(ctx, `
-INSERT INTO main.module (import_path, dir, class, vendor)
-  VALUES (?, ?, ?, ?)
-  ON CONFLICT(import_path) 
-    DO UPDATE SET
-      dir=excluded.dir,
-      class=excluded.class,
-      vendor=excluded.vendor;
+func (s *Sync) pruneModules(ctx context.Context) error {
+	_, err := s.tx.ExecContext(ctx, `
+DELETE FROM 
+  main.module 
+WHERE 
+  keep=FALSE;
 `)
 	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
+		return fmt.Errorf("failed to prune modules: %w", err)
+	}
+	return nil
+}
+
+func SelectAllModules(ctx context.Context, db Querier, mods []Module) (_ []Module, rerr error) {
+	return selectModulesFromWhere(ctx, db, mods, "main.module", "")
+}
+func selectModulesFromWhere(ctx context.Context, db Querier, mods []Module, from, where string, args ...any) (_ []Module, rerr error) {
+	stmt, err := selectModulesFromWhereStmt(ctx, db, from, where)
+	if err != nil {
+		return nil, err
 	}
 	defer func() {
 		if err := stmt.Close(); err != nil {
 			rerr = errors.Join(rerr, fmt.Errorf("failed to close statement: %w", err))
 		}
 	}()
-
-	for _, mod := range mods {
-		_, err := stmt.ExecContext(ctx, mod.ImportPath, mod.Dir, mod.Class, mod.Vendor)
-		if err != nil {
-			return fmt.Errorf("failed to execute prepared statement: %w", err)
-		}
-	}
-	return nil
+	return selectModules(ctx, stmt, mods, args...)
 }
-
-func pruneModules(ctx context.Context, db Querier) error {
-	_, err := db.ExecContext(ctx, `
-DELETE FROM main.module 
-  WHERE rowid IN (
-    SELECT rowid FROM temp.module_prune
-);
-`)
-	return err
-}
-
-func selectUpdatedModules(ctx context.Context, db Querier, mods []Module) (_ []Module, rerr error) {
-	rows, err := db.QueryContext(ctx, `
-SELECT rowid, import_path, dir, class, vendor FROM 
-    temp.module_need_sync, main.module USING (rowid);
-`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to select updated modules: %w", err)
-	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			rerr = errors.Join(rerr, fmt.Errorf("failed to close rows: %w", err))
-		}
-	}()
-
-	return scanModules(ctx, rows, mods)
-}
-
-func SelectAllModules(ctx context.Context, db Querier, mods []Module) (_ []Module, rerr error) {
-	return selectModulesFromWhere(ctx, db, mods, "main.module", "")
-}
-func selectModulesFromWhere(ctx context.Context, db Querier, mods []Module,
-	from, where string, args ...interface{}) (_ []Module, rerr error) {
-	query := `SELECT rowid, import_path, dir, class, vendor FROM ` + from
+func selectModulesFromWhereStmt(ctx context.Context, db Querier, from, where string) (*sql.Stmt, error) {
+	query := `
+SELECT 
+  rowid, 
+  import_path, 
+  dir, 
+  class, 
+  vendor 
+FROM 
+  `
+	query += from
 	if where != "" {
 		query += " WHERE " + where
 	}
 	query += ";"
 
-	rows, err := db.QueryContext(ctx, query)
+	stmt, err := db.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	return stmt, nil
+}
+func selectModules(ctx context.Context, stmt *sql.Stmt, mods []Module, args ...interface{}) (_ []Module, rerr error) {
+	rows, err := stmt.QueryContext(ctx, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select modules: %w", err)
 	}
@@ -156,10 +165,7 @@ func selectModulesFromWhere(ctx context.Context, db Querier, mods []Module,
 }
 
 func scanModules(ctx context.Context, rows *sql.Rows, mods []Module) ([]Module, error) {
-	if mods == nil {
-		mods = make([]Module, 0)
-	}
-	for rows.Next() && rows.Err() == nil {
+	for rows.Next() {
 		mod, err := scanModule(rows)
 		if err != nil {
 			return mods, fmt.Errorf("failed to scan module: %w", err)
@@ -191,9 +197,9 @@ func scanModule(row Scanner) (mod Module, _ error) {
 	return mod, nil
 }
 
-func selectModulesPrune(ctx context.Context, db Querier, mods []Module) ([]Module, error) {
-	return selectModulesFromWhere(ctx, db, mods, "temp.module_prune LEFT JOIN main.module USING (rowid)", "")
+func (s *Sync) selectModulesPrune() ([]Module, error) {
+	return selectModulesFromWhere(s.ctx, s.tx, nil, "main.module", "keep=FALSE ORDER BY rowid")
 }
-func selectModulesNeedSync(ctx context.Context, db Querier, mods []Module) ([]Module, error) {
-	return selectModulesFromWhere(ctx, db, mods, "temp.module_need_sync, main.module USING (rowid)", "")
+func (s *Sync) selectModulesNeedSync() ([]Module, error) {
+	return selectModulesFromWhere(s.ctx, s.tx, nil, "main.module", "sync=TRUE ORDER BY rowid")
 }

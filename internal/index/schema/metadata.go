@@ -31,16 +31,24 @@ func scanMetadata(row Scanner) (Metadata, error) {
 	)
 }
 
-func UpsertMetadata(ctx context.Context, db Querier) error {
+func (s *Sync) upsertMetadata(ctx context.Context) error {
 	const query = `
-INSERT INTO metadata(rowid, build_revision, go_version) VALUES (1, ?, ?)
-  ON CONFLICT(rowid) DO 
-    UPDATE SET 
-      updated_at=CURRENT_TIMESTAMP, 
-      build_revision=excluded.build_revision,
-      go_version=excluded.go_version;
+INSERT INTO 
+  metadata(
+    rowid, 
+    build_revision, 
+    go_version
+  ) 
+VALUES (
+  1, ?, ?
+)
+ON CONFLICT(rowid) DO 
+  UPDATE SET 
+    updated_at=CURRENT_TIMESTAMP, 
+    build_revision=excluded.build_revision,
+    go_version=excluded.go_version;
 `
-	if _, err := db.ExecContext(ctx, query, BuildRevision, GoVersion); err != nil {
+	if _, err := s.tx.ExecContext(ctx, query, BuildRevision, GoVersion); err != nil {
 		return fmt.Errorf("failed to upsert metadata: %w", err)
 	}
 	return nil

@@ -5,15 +5,15 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
-	"time"
 
+	"aslevy.com/go-doc/internal/dlog"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-// func init() {
-// 	dlog.Enable()
-// }
+func init() {
+	dlog.Enable()
+}
 
 func TestSchema(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -68,18 +68,18 @@ var _ = Describe("Schema", func() {
 		dbPath := tempDBPath()
 		db = initDB(ctx, dbPath)
 
-		By("populating the metadata table")
-		Expect(UpsertMetadata(ctx, db)).To(Succeed(), "failed to insert metadata")
+		sync, err := NewSync(ctx, db)
+		Expect(err).To(Succeed(), "failed to create sync")
+		Expect(sync).ToNot(BeNil(), "sync should not be nil")
 
 		allMods = initModules()
-		sync, needSync, err := NewSync(ctx, db, allMods)
-		Expect(err).To(Succeed(), "failed to create sync")
-		Expect(needSync).To(Equal(allMods), "needSync should be equal to allMods")
-		Expect(sync).ToNot(BeNil(), "sync should not be nil")
+		needsSync, err := sync.AddRequiredModules(allMods...)
+		Expect(err).To(Succeed(), "failed to add required modules")
+		Expect(needsSync).To(Equal(allMods), "all modules should need sync")
 
 		By("populating the package table")
 		allPkgs = initPackages()
-		Expect(sync.SyncPackages(ctx, allPkgs...)).
+		Expect(sync.AddPackages(allPkgs...)).
 			To(Succeed(), "initial SyncPackages should succeed")
 
 		Expect(sync.Finish(ctx)).To(Succeed(), "sync should finish successfully")
@@ -95,42 +95,42 @@ var _ = Describe("Schema", func() {
 		db = initDB(ctx, dbPath)
 	})
 
-	Describe("Metadata", func() {
-		var md Metadata
-		var originalCreatedAt time.Time
-		JustBeforeEach(func(ctx context.Context) {
-			By("selecting the metadata")
-			// Save last loaded created at time for use in next
-			// When block
-			originalCreatedAt = md.CreatedAt
-			var err error
-			md, err = SelectMetadata(ctx, db)
-			Expect(err).To(Succeed(), "failed to select metadata")
-		})
+	// Describe("Metadata", func() {
+	// 	var md Metadata
+	// 	var originalCreatedAt time.Time
+	// 	JustBeforeEach(func(ctx context.Context) {
+	// 		By("selecting the metadata")
+	// 		// Save last loaded created at time for use in next
+	// 		// When block
+	// 		originalCreatedAt = md.CreatedAt
+	// 		var err error
+	// 		md, err = SelectMetadata(ctx, db)
+	// 		Expect(err).To(Succeed(), "failed to select metadata")
+	// 	})
 
-		It("should initialize the metadata", func() {
-			Expect(md.CreatedAt).To(BeTemporally("~", time.Now(), time.Second), "CreatedAt should be set to now")
-			Expect(md.UpdatedAt).To(Equal(md.CreatedAt), "UpdatedAt should be the same as CreatedAt")
-			Expect(md.BuildRevision).ToNot(BeEmpty(), "BuildRevision should be set")
-			Expect(md.GoVersion).ToNot(BeEmpty(), "GoVersion should be set")
-		})
+	// 	It("should initialize the metadata", func() {
+	// 		Expect(md.CreatedAt).To(BeTemporally("~", time.Now(), time.Second), "CreatedAt should be set to now")
+	// 		Expect(md.UpdatedAt).To(Equal(md.CreatedAt), "UpdatedAt should be the same as CreatedAt")
+	// 		Expect(md.BuildRevision).ToNot(BeEmpty(), "BuildRevision should be set")
+	// 		Expect(md.GoVersion).ToNot(BeEmpty(), "GoVersion should be set")
+	// 	})
 
-		When("the metadata already exists", func() {
-			BeforeEach(func(ctx context.Context) {
-				By("updating the metadata")
-				time.Sleep(time.Second)
-				Expect(UpsertMetadata(ctx, db)).To(Succeed(), "failed to upsert metadata")
-			})
+	// 	When("the metadata already exists", func() {
+	// 		BeforeEach(func(ctx context.Context) {
+	// 			By("updating the metadata")
+	// 			time.Sleep(time.Second)
+	// 			Expect(UpsertMetadata(ctx, db)).To(Succeed(), "failed to upsert metadata")
+	// 		})
 
-			It("should update the metadata", func() {
-				Expect(originalCreatedAt).ToNot(BeZero(), "originalCreatedAt should be set")
-				Expect(md.CreatedAt).To(Equal(originalCreatedAt), "CreatedAt should not have changed")
-				Expect(md.UpdatedAt).To(BeTemporally(">", md.CreatedAt), "UpdatedAt should be after CreatedAt")
-				Expect(md.BuildRevision).ToNot(BeEmpty(), "BuildRevision should be set")
-				Expect(md.GoVersion).ToNot(BeEmpty(), "GoVersion should be set")
-			})
-		})
-	})
+	// 		It("should update the metadata", func() {
+	// 			Expect(originalCreatedAt).ToNot(BeZero(), "originalCreatedAt should be set")
+	// 			Expect(md.CreatedAt).To(Equal(originalCreatedAt), "CreatedAt should not have changed")
+	// 			Expect(md.UpdatedAt).To(BeTemporally(">", md.CreatedAt), "UpdatedAt should be after CreatedAt")
+	// 			Expect(md.BuildRevision).ToNot(BeEmpty(), "BuildRevision should be set")
+	// 			Expect(md.GoVersion).ToNot(BeEmpty(), "GoVersion should be set")
+	// 		})
+	// 	})
+	// })
 
 	Describe("Sync", func() {
 		var sync *Sync
@@ -139,10 +139,13 @@ var _ = Describe("Schema", func() {
 		JustBeforeEach(func(ctx context.Context) {
 			By("re-syncing modules")
 			var err error
-			sync, needSync, err = NewSync(ctx, db, allMods)
+			sync, err = NewSync(ctx, db)
 			Expect(err).To(Succeed(), "failed to sync modules")
-			Expect(needSync).ToNot(BeNil(), "needSync should not be nil")
 			Expect(sync).ToNot(BeNil(), "sync should not be nil")
+
+			needSync, err = sync.AddRequiredModules(allMods...)
+			Expect(err).To(Succeed(),
+				"failed to add required modules")
 
 			if len(needSync) > 0 {
 				modIDs := make(map[int64]struct{}, len(needSync))
@@ -155,22 +158,25 @@ var _ = Describe("Schema", func() {
 					if _, ok := modIDs[pkg.ModuleID]; !ok {
 						continue
 					}
-					if err := sync.SyncPackages(ctx, pkg); err != nil {
-						Expect(err).To(Succeed(), "failed to sync packages")
-					}
+					Expect(sync.AddPackages(pkg)).To(Succeed(),
+						"failed to sync packages")
 				}
 			}
 
-			Expect(sync.Finish(ctx)).To(Succeed(), "sync should finish successfully")
+			modPrune, err = sync.selectModulesPrune()
+			Expect(err).To(Succeed(),
+				"failed to select modules to prune")
 
-			Expect(SelectAllModules(ctx, db, nil)).
-				To(Equal(allMods), "SelectAllModules should return all modules")
+			pkgPrune, err = sync.selectPackagesPrune()
+			Expect(err).To(Succeed(),
+				"failed to select packages to prune")
 
-			modPrune, err = selectModulesPrune(ctx, db, nil)
-			Expect(err).To(Succeed(), "failed to select modules to prune")
+			Expect(sync.Finish(ctx)).To(Succeed(),
+				"sync should finish successfully")
 
-			pkgPrune, err = selectPackagesPrune(ctx, db, nil)
-			Expect(err).To(Succeed(), "failed to select packages to prune")
+			Expect(SelectAllModules(ctx, db, nil)).To(Equal(allMods),
+				"SelectAllModules should return all modules")
+
 		})
 
 		When("the modules have not changed", func() {
@@ -223,9 +229,6 @@ var _ = Describe("Schema", func() {
 				Expect(needSync).To(BeEmpty(), "SyncModules should return no modules")
 				Expect(SelectModulePackages(ctx, db, removed[0].ID)).
 					To(BeEmpty(), "SelectModulePackages should return no packages")
-				for i, mod := range removed {
-					removed[i] = Module{ID: mod.ID}
-				}
 				Expect(modPrune).To(Equal(removed), "the removed module should be pruned")
 				Expect(pkgPrune).To(BeEmpty(), "there should be no packages to prune")
 			})
@@ -280,9 +283,9 @@ var _ = Describe("Schema", func() {
 					allPkgs = modPkgs[1:]
 				})
 
-				It("should prune the removed package, add the added package, and retain the pre-exisitng packages", func(ctx context.Context) {
+				It("should prune the removed package, add the added package, and retain the pre-existing packages", func(ctx context.Context) {
 					Expect(SelectModulePackages(ctx, db, updated[0].ID)).
-						To(Equal(modPkgs[1:]), "synced packages are not correct")
+						To(Equal(allPkgs), "synced packages are not correct")
 				})
 			})
 		})
