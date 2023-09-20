@@ -22,77 +22,301 @@ func TestSchema(t *testing.T) {
 
 func tempDBPath() string {
 	GinkgoHelper()
-	const (
-		dbFile = "file:"
-		dbName = "index.sqlite3"
-	)
+	const dbName = "index.sqlite3"
 	tempDir := GinkgoT().TempDir()
 	// tempDir = "."
-	return dbFile + filepath.Join(tempDir, dbName)
-}
-func initDB(ctx context.Context, dbPath string) *sql.DB {
-	GinkgoHelper()
-	By("opening db " + dbPath)
-	db, err := OpenDB(ctx, dbPath)
-	Expect(err).To(Succeed(), "failed to open database")
-	DeferCleanup(func() {
-		By("closing the database")
-		Expect(db.Close()).To(Succeed(), "failed to close database")
-	})
-
-	applicationID, err := getApplicationID(ctx, db)
-	Expect(err).To(Succeed(), "failed to get application_id pragma")
-	Expect(applicationID).To(Equal(sqliteApplicationID), "application_id should be set")
-
-	userVersion, err := getUserVersion(ctx, db)
-	Expect(err).To(Succeed(), "failed to get user_version pragma")
-	Expect(userVersion).To(Equal(schemaCRC), "user_version should be set")
-
-	var foreignKeys, recursiveTriggers bool
-	Expect(getPragma(ctx, db, pragmaForeignKeys, &foreignKeys)).To(Succeed(), "failed to get foreign_keys pragma")
-	Expect(foreignKeys).To(BeTrue(), "foreign_keys should be enabled")
-
-	Expect(getPragma(ctx, db, pragmaRecursiveTriggers, &recursiveTriggers)).To(Succeed(), "failed to get recursive_triggers pragma")
-	Expect(recursiveTriggers).To(BeTrue(), "recursive_triggers should be enabled")
-
-	return db
+	return filepath.Join(tempDir, dbName)
 }
 
 var _ = Describe("Schema", func() {
 	var (
+		dbPath  string
 		db      *sql.DB
+		meta    Metadata
 		allMods []Module
 		allPkgs []Package
 	)
-	BeforeEach(func(ctx context.Context) {
-		dbPath := tempDBPath()
-		db = initDB(ctx, dbPath)
+	When("OpenDB is called", func() {
+		BeforeEach(func(ctx context.Context) {
+			dbPath = tempDBPath()
+			By("opening db " + dbPath)
+			var err error
+			db, err = OpenDB(ctx, dbPath)
+			Expect(err).
+				To(Succeed(), "OpenDB")
+			DeferCleanup(func() {
+				By("closing the database")
+				Expect(db.Close()).
+					To(Succeed(), "sql.DB.Close")
+			})
+		})
+		It("initializes the database", func(ctx context.Context) {
+			var foreignKeys bool
+			Expect(getPragma(ctx, db, pragmaForeignKeys, &foreignKeys)).To(Succeed(), "failed to get foreign_keys pragma")
+			Expect(foreignKeys).To(BeTrue(), "foreign_keys should be enabled")
 
-		sync, err := NewSync(ctx, db)
-		Expect(err).To(Succeed(), "failed to create sync")
-		Expect(sync).ToNot(BeNil(), "sync should not be nil")
+			var recursiveTriggers bool
+			Expect(getPragma(ctx, db, pragmaRecursiveTriggers, &recursiveTriggers)).To(Succeed(), "failed to get recursive_triggers pragma")
+			Expect(recursiveTriggers).To(BeTrue(), "recursive_triggers should be enabled")
 
-		allMods = initModules()
-		needsSync, err := sync.AddRequiredModules(allMods...)
-		Expect(err).To(Succeed(), "failed to add required modules")
-		Expect(needsSync).To(Equal(allMods), "all modules should need sync")
+			applicationID, err := getApplicationID(ctx, db)
+			Expect(err).To(Succeed(), "failed to get application_id pragma")
+			Expect(applicationID).To(Equal(sqliteApplicationID), "application_id should be set")
 
-		By("populating the package table")
-		allPkgs = initPackages()
-		Expect(sync.AddPackages(allPkgs...)).
-			To(Succeed(), "initial SyncPackages should succeed")
+			userVersion, err := getUserVersion(ctx, db)
+			Expect(err).To(Succeed(), "failed to get user_version pragma")
+			Expect(userVersion).To(Equal(schemaChecksum), "user_version should be set")
+		})
 
-		Expect(sync.Finish(ctx)).To(Succeed(), "sync should finish successfully")
+		When("first synced", func() {
+			BeforeEach(func(ctx context.Context) {
+				sync, err := NewSync(ctx, db)
+				Expect(err).To(Succeed(), "NewSync")
+				Expect(sync).ToNot(BeNil(), "NewSync: should not be nil")
 
-		Expect(SelectAllModules(ctx, db, nil)).
-			To(Equal(allMods), "SelectAllModules should return all modules")
+				By("syncing modules")
+				allMods = initModules()
+				for i := range allMods {
+					needsSync, err := sync.AddModule(&allMods[i])
+					Expect(err).To(Succeed(), "Sync.AddModule")
+					Expect(needsSync).To(BeTrue(), "Sync.AddModule: all modules should need sync")
+				}
 
-		Expect(SelectAllPackages(ctx, db, nil)).
-			To(Equal(allPkgs), "SelectAllPackages should return all packages")
+				By("syncing packages")
+				allPkgs = initPackages()
+				for i := range allPkgs {
+					Expect(sync.AddPackage(allPkgs[i])).
+						To(Succeed(), "Sync.AddPackage")
+				}
 
-		By("closing and re-opening the database")
-		Expect(db.Close()).To(Succeed(), "failed to close database")
-		db = initDB(ctx, dbPath)
+				By("finishing sync")
+				meta = initMetadata()
+				Expect(sync.Finish(ctx, meta)).
+					To(Succeed(), "Sync.Finish")
+			})
+			It("has all modules and packages", func(ctx context.Context) {
+				Expect(SelectAllModules(ctx, db, nil)).
+					To(Equal(allMods), "all modules should be synced")
+
+				Expect(SelectAllPackages(ctx, db, nil)).
+					To(Equal(allPkgs), "all packages should be synced")
+			})
+			When("re-synced", func() {
+				var modPrune, needSync []Module
+				var pkgPrune []Package
+				BeforeEach(func(ctx context.Context) {
+					By("closing the database")
+					Expect(db.Close()).
+						To(Succeed(), "sql.DB.Close")
+
+					By("re-opening the database")
+					var err error
+					db, err = OpenDB(ctx, dbPath)
+					Expect(err).
+						To(Succeed(), "OpenDB")
+
+					allMods = initModules()
+					allPkgs = initPackages()
+					meta = initMetadata()
+					modPrune = modPrune[:0]
+					needSync = needSync[:0]
+					pkgPrune = pkgPrune[:0]
+				})
+				JustBeforeEach(func(ctx context.Context) {
+					var err error
+					sync, err := NewSync(ctx, db)
+					Expect(err).To(Succeed(), "failed to sync modules")
+					Expect(sync).ToNot(BeNil(), "sync should not be nil")
+
+					for i, mod := range allMods {
+						syncMod, err := sync.AddModule(&mod)
+						Expect(err).To(Succeed(),
+							"failed to add required modules")
+						Expect(mod).To(Equal(allMods[i]), "module should not be modified")
+						if syncMod {
+							needSync = append(needSync, allMods[i])
+						}
+					}
+
+					if len(needSync) > 0 {
+						modIDs := make(map[int64]struct{}, len(needSync))
+						for _, mod := range needSync {
+							modIDs[mod.ID] = struct{}{}
+						}
+
+						By("re-syncing packages")
+						for _, pkg := range allPkgs {
+							if _, ok := modIDs[pkg.ModuleID]; !ok {
+								continue
+							}
+							Expect(sync.AddPackage(pkg)).To(Succeed(),
+								"failed to sync packages")
+						}
+					}
+
+					modPrune, err = sync.selectModulesPrune()
+					Expect(err).To(Succeed(),
+						"failed to select modules to prune")
+
+					pkgPrune, err = sync.selectPackagesPrune()
+					Expect(err).To(Succeed(),
+						"failed to select packages to prune")
+
+					Expect(sync.Finish(ctx, meta)).To(Succeed(),
+						"sync should finish successfully")
+
+					Expect(SelectAllModules(ctx, db, nil)).To(Equal(allMods),
+						"SelectAllModules should return all modules")
+
+				})
+
+				When("the modules have not changed", func() {
+					It("should return no modules", func() {
+						Expect(needSync).To(BeEmpty(), "SyncModules should return no modules")
+						Expect(modPrune).To(BeEmpty(), "there should be no modules to prune")
+						Expect(pkgPrune).To(BeEmpty(), "there should be no packages to prune")
+					})
+				})
+
+				When("a new module is added", func() {
+					BeforeEach(func() {
+						By("adding a new module")
+						newMod := Module{
+							ID:         allMods[len(allMods)-1].ID + 1,
+							ImportPath: "github.com/onsi/gomega",
+							Dir:        "/home/adam/go/pkg/mod/github.com/onsi/gomega@v1.10.3",
+							Class:      ClassRequired,
+						}
+						allMods = append(allMods, newMod)
+						allPkgs = append(allPkgs, Package{
+							ID:           allPkgs[len(allPkgs)-1].ID + 1,
+							RelativePath: "",
+							ModuleID:     newMod.ID,
+							NumParts:     0,
+						}, Package{
+							ID:           allPkgs[len(allPkgs)-1].ID + 2,
+							RelativePath: "types",
+							ModuleID:     newMod.ID,
+							NumParts:     1,
+						})
+					})
+
+					It("should return the new module", func() {
+						Expect(needSync).To(Equal(allMods[len(allMods)-1:]), "SyncModules should return the new module")
+						Expect(modPrune).To(BeEmpty(), "there should be no modules to prune")
+						Expect(pkgPrune).To(BeEmpty(), "there should be no packages to prune")
+					})
+				})
+
+				When("a module is removed", func() {
+					var removed []Module
+					BeforeEach(func() {
+						By("removing a module")
+						removed = allMods[len(allMods)-1:]
+						allMods = allMods[:len(allMods)-1]
+					})
+
+					It("should prune the removed module and its packages", func(ctx context.Context) {
+						Expect(needSync).To(BeEmpty(), "SyncModules should return no modules")
+						Expect(SelectModulePackages(ctx, db, removed[0].ID)).
+							To(BeEmpty(), "SelectModulePackages should return no packages")
+						Expect(modPrune).To(Equal(removed), "the removed module should be pruned")
+						Expect(pkgPrune).To(BeEmpty(), "there should be no packages to prune")
+					})
+				})
+
+				When("a module is updated", func() {
+					var updated []Module
+					var modPkgs []Package
+					BeforeEach(func(ctx context.Context) {
+						By("changing the directory of a module")
+						allMods[0].Dir = "/home/adam/go/pkg/mod/github.com/stretchr/testify@v1.8.2"
+						updated = allMods[:1]
+
+						var err error
+						modPkgs, err = SelectModulePackages(ctx, db, updated[0].ID)
+						Expect(err).To(Succeed(), "failed to select module packages")
+						Expect(modPkgs).ToNot(BeEmpty(), "module packages should not be empty")
+					})
+
+					It("should return the updated module", func() {
+						Expect(needSync).To(Equal(updated), "SyncModules should return the updated module")
+						Expect(modPrune).To(BeEmpty(), "there should be no modules to prune")
+						Expect(pkgPrune).To(BeEmpty(), "the module's packages should be potentially pruned")
+					})
+
+					When("the module's packages are unchanged", func() {
+						It("should retain the module's packages", func(ctx context.Context) {
+							Expect(SelectModulePackages(ctx, db, updated[0].ID)).
+								To(Equal(modPkgs), "synced packages are not correct")
+						})
+					})
+
+					When("a module's package is removed", func() {
+						BeforeEach(func() {
+							By("removing a package")
+							allPkgs = modPkgs[1:]
+						})
+						It("should prune the removed package", func(ctx context.Context) {
+							Expect(SelectModulePackages(ctx, db, updated[0].ID)).
+								To(Equal(allPkgs), "synced packages are not correct")
+						})
+					})
+
+					When("a module's packages are added and removed", func() {
+						BeforeEach(func() {
+							modPkgs = append(modPkgs, Package{
+								ID:           int64(len(allPkgs) + 1),
+								ModuleID:     updated[0].ID,
+								RelativePath: "added",
+								NumParts:     1,
+							})
+							allPkgs = modPkgs[1:]
+						})
+
+						It("should prune the removed package, add the added package, and retain the pre-existing packages", func(ctx context.Context) {
+							Expect(SelectModulePackages(ctx, db, updated[0].ID)).
+								To(Equal(allPkgs), "synced packages are not correct")
+						})
+					})
+				})
+
+				When("modules are removed, added, and updated", func() {
+					var removed Module
+					BeforeEach(func() {
+						By("removing, adding, and updating modules")
+						removed = allMods[0]
+						allMods = allMods[1:]
+						allMods[1].Dir = "/home/adam/go/pkg/mod/github.com/muesli/reflow@v0.3.1"
+						newMod := Module{
+							ID:         allMods[len(allMods)-1].ID + 1,
+							ImportPath: "github.com/onsi/gomega",
+							Dir:        "/home/adam/go/pkg/mod/github.com/onsi/gomega@v1.10.3",
+							Class:      ClassRequired,
+						}
+						allMods = append(allMods, newMod)
+						allPkgs = append(allPkgs, Package{
+							ID:           allPkgs[len(allPkgs)-1].ID + 1,
+							RelativePath: "",
+							ModuleID:     newMod.ID,
+							NumParts:     0,
+						}, Package{
+							ID:           allPkgs[len(allPkgs)-1].ID + 2,
+							RelativePath: "types",
+							ModuleID:     newMod.ID,
+							NumParts:     1,
+						})
+					})
+					It("should return the new and updated modules", func() {
+						Expect(needSync).To(Equal(allMods[1:]))
+					})
+					It("should remove the removed module's packages", func(ctx context.Context) {
+						Expect(SelectModulePackages(ctx, db, removed.ID)).
+							To(BeEmpty(), "SelectModulePackages should return no packages")
+					})
+				})
+			})
+		})
 	})
 
 	// Describe("Metadata", func() {
@@ -132,200 +356,15 @@ var _ = Describe("Schema", func() {
 	// 	})
 	// })
 
-	Describe("Sync", func() {
-		var sync *Sync
-		var modPrune, needSync []Module
-		var pkgPrune []Package
-		JustBeforeEach(func(ctx context.Context) {
-			By("re-syncing modules")
-			var err error
-			sync, err = NewSync(ctx, db)
-			Expect(err).To(Succeed(), "failed to sync modules")
-			Expect(sync).ToNot(BeNil(), "sync should not be nil")
-
-			needSync, err = sync.AddRequiredModules(allMods...)
-			Expect(err).To(Succeed(),
-				"failed to add required modules")
-
-			if len(needSync) > 0 {
-				modIDs := make(map[int64]struct{}, len(needSync))
-				for _, mod := range needSync {
-					modIDs[mod.ID] = struct{}{}
-				}
-
-				By("re-syncing packages")
-				for _, pkg := range allPkgs {
-					if _, ok := modIDs[pkg.ModuleID]; !ok {
-						continue
-					}
-					Expect(sync.AddPackages(pkg)).To(Succeed(),
-						"failed to sync packages")
-				}
-			}
-
-			modPrune, err = sync.selectModulesPrune()
-			Expect(err).To(Succeed(),
-				"failed to select modules to prune")
-
-			pkgPrune, err = sync.selectPackagesPrune()
-			Expect(err).To(Succeed(),
-				"failed to select packages to prune")
-
-			Expect(sync.Finish(ctx)).To(Succeed(),
-				"sync should finish successfully")
-
-			Expect(SelectAllModules(ctx, db, nil)).To(Equal(allMods),
-				"SelectAllModules should return all modules")
-
-		})
-
-		When("the modules have not changed", func() {
-			It("should return no modules", func() {
-				Expect(needSync).To(BeEmpty(), "SyncModules should return no modules")
-				Expect(modPrune).To(BeEmpty(), "there should be no modules to prune")
-				Expect(pkgPrune).To(BeEmpty(), "there should be no packages to prune")
-			})
-		})
-
-		When("a new module is added", func() {
-			BeforeEach(func() {
-				By("adding a new module")
-				newMod := Module{
-					ID:         allMods[len(allMods)-1].ID + 1,
-					ImportPath: "github.com/onsi/gomega",
-					Dir:        "/home/adam/go/pkg/mod/github.com/onsi/gomega@v1.10.3",
-					Class:      ClassRequired,
-				}
-				allMods = append(allMods, newMod)
-				allPkgs = append(allPkgs, Package{
-					ID:           allPkgs[len(allPkgs)-1].ID + 1,
-					RelativePath: "",
-					ModuleID:     newMod.ID,
-					NumParts:     0,
-				}, Package{
-					ID:           allPkgs[len(allPkgs)-1].ID + 2,
-					RelativePath: "types",
-					ModuleID:     newMod.ID,
-					NumParts:     1,
-				})
-			})
-
-			It("should return the new module", func() {
-				Expect(needSync).To(Equal(allMods[len(allMods)-1:]), "SyncModules should return the new module")
-				Expect(modPrune).To(BeEmpty(), "there should be no modules to prune")
-				Expect(pkgPrune).To(BeEmpty(), "there should be no packages to prune")
-			})
-		})
-
-		When("a module is removed", func() {
-			var removed []Module
-			BeforeEach(func() {
-				By("removing a module")
-				removed = allMods[len(allMods)-1:]
-				allMods = allMods[:len(allMods)-1]
-			})
-
-			It("should prune the removed module and its packages", func(ctx context.Context) {
-				Expect(needSync).To(BeEmpty(), "SyncModules should return no modules")
-				Expect(SelectModulePackages(ctx, db, removed[0].ID)).
-					To(BeEmpty(), "SelectModulePackages should return no packages")
-				Expect(modPrune).To(Equal(removed), "the removed module should be pruned")
-				Expect(pkgPrune).To(BeEmpty(), "there should be no packages to prune")
-			})
-		})
-
-		When("a module is updated", func() {
-			var updated []Module
-			var modPkgs []Package
-			BeforeEach(func(ctx context.Context) {
-				By("changing the directory of a module")
-				allMods[0].Dir = "/home/adam/go/pkg/mod/github.com/stretchr/testify@v1.8.2"
-				updated = allMods[:1]
-
-				var err error
-				modPkgs, err = SelectModulePackages(ctx, db, updated[0].ID)
-				Expect(err).To(Succeed(), "failed to select module packages")
-				Expect(modPkgs).ToNot(BeEmpty(), "module packages should not be empty")
-			})
-
-			It("should return the updated module", func() {
-				Expect(needSync).To(Equal(updated), "SyncModules should return the updated module")
-				Expect(modPrune).To(BeEmpty(), "there should be no modules to prune")
-				Expect(pkgPrune).To(BeEmpty(), "the module's packages should be potentially pruned")
-			})
-
-			When("the module's packages are unchanged", func() {
-				It("should retain the module's packages", func(ctx context.Context) {
-					Expect(SelectModulePackages(ctx, db, updated[0].ID)).
-						To(Equal(modPkgs), "synced packages are not correct")
-				})
-			})
-
-			When("a module's package is removed", func() {
-				BeforeEach(func() {
-					By("removing a package")
-					allPkgs = modPkgs[1:]
-				})
-				It("should prune the removed package", func(ctx context.Context) {
-					Expect(SelectModulePackages(ctx, db, updated[0].ID)).
-						To(Equal(allPkgs), "synced packages are not correct")
-				})
-			})
-
-			When("a module's packages are added and removed", func() {
-				BeforeEach(func() {
-					modPkgs = append(modPkgs, Package{
-						ID:           int64(len(allPkgs) + 1),
-						ModuleID:     updated[0].ID,
-						RelativePath: "added",
-						NumParts:     1,
-					})
-					allPkgs = modPkgs[1:]
-				})
-
-				It("should prune the removed package, add the added package, and retain the pre-existing packages", func(ctx context.Context) {
-					Expect(SelectModulePackages(ctx, db, updated[0].ID)).
-						To(Equal(allPkgs), "synced packages are not correct")
-				})
-			})
-		})
-
-		When("modules are removed, added, and updated", func() {
-			var removed Module
-			BeforeEach(func() {
-				By("removing, adding, and updating modules")
-				removed = allMods[0]
-				allMods = allMods[1:]
-				allMods[1].Dir = "/home/adam/go/pkg/mod/github.com/muesli/reflow@v0.3.1"
-				newMod := Module{
-					ID:         allMods[len(allMods)-1].ID + 1,
-					ImportPath: "github.com/onsi/gomega",
-					Dir:        "/home/adam/go/pkg/mod/github.com/onsi/gomega@v1.10.3",
-					Class:      ClassRequired,
-				}
-				allMods = append(allMods, newMod)
-				allPkgs = append(allPkgs, Package{
-					ID:           allPkgs[len(allPkgs)-1].ID + 1,
-					RelativePath: "",
-					ModuleID:     newMod.ID,
-					NumParts:     0,
-				}, Package{
-					ID:           allPkgs[len(allPkgs)-1].ID + 2,
-					RelativePath: "types",
-					ModuleID:     newMod.ID,
-					NumParts:     1,
-				})
-			})
-			It("should return the new and updated modules", func() {
-				Expect(needSync).To(Equal(allMods[1:]))
-			})
-			It("should remove the removed module's packages", func(ctx context.Context) {
-				Expect(SelectModulePackages(ctx, db, removed.ID)).
-					To(BeEmpty(), "SelectModulePackages should return no packages")
-			})
-		})
-	})
 })
+
+func initMetadata() Metadata {
+	return Metadata{
+		BuildRevision: "test",
+		GoVersion:     "test",
+		GoSumHash:     1024,
+	}
+}
 
 func initModules() []Module {
 	return []Module{{

@@ -6,126 +6,64 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
-	"errors"
 	"fmt"
 	"hash/crc32"
 
 	_ "modernc.org/sqlite"
-
-	"aslevy.com/go-doc/internal/dlog"
 )
 
-func OpenDB(ctx context.Context, dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-	if err := initialize(ctx, db); err != nil {
-		if cerr := db.Close(); cerr != nil {
-			err = errors.Join(err, fmt.Errorf("failed to close database: %w", cerr))
-		}
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
-	}
-	return db, nil
-}
-
-func initialize(ctx context.Context, db *sql.DB) (rerr error) {
-	// Only proceed if the database matches our application ID.
-	if err := assertApplicationID(ctx, db); err != nil {
-		return err
-	}
-
-	// Enable foreign keys and recursive triggers.
-	if err := enableForeignKeys(ctx, db); err != nil {
-		return err
-	}
-	if err := enableRecursiveTriggers(ctx, db); err != nil {
-		return err
-	}
-
-	// Check if the schema is up to date.
-	userVersion, err := getUserVersion(ctx, db)
-	if err != nil {
-		return err
-	}
-	if userVersion == schemaCRC {
-		// Schema is up to date.
-		return nil
-	}
-	if userVersion != 0 {
-		return fmt.Errorf("database has incorrect user_version")
-	}
-	dlog.Printf("Applying schema (0x%X)...", uint32(schemaCRC))
-
-	schemaVersion, err := getSchemaVersion(ctx, db)
-	if err != nil {
-		return err
-	}
-	if schemaVersion > 0 {
-		return fmt.Errorf("database schema_version (%d) is not zero", schemaVersion)
-	}
-
-	tx, err := db.BeginTx(ctx, nil)
+// applySchema execs all schemaQueries against the db.
+func applySchema(ctx context.Context, db *sql.DB) (rerr error) {
+	tx, err := beginTx(ctx, db)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer RollbackOnError(tx, &rerr)
-	defer CommitOnSuccess(tx, &rerr)
+	defer tx.RollbackOrCommit(&rerr)
 
-	return applySchema(ctx, tx)
-}
-
-func RollbackOrCommit(tx *sql.Tx, rerr *error) {
-	RollbackOnError(tx, rerr)
-	CommitOnSuccess(tx, rerr)
-}
-func RollbackOnError(tx *sql.Tx, rerr *error) {
-	if *rerr == nil {
-		return
-	}
-	dlog.Output(0, "rolling back...")
-	if err := tx.Rollback(); err != nil {
-		*rerr = errors.Join(*rerr, fmt.Errorf("failed to rollback transaction: %w", err))
-	}
-}
-func CommitOnSuccess(tx *sql.Tx, rerr *error) {
-	if *rerr != nil {
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		*rerr = fmt.Errorf("failed to commit transaction: %w", err)
-	}
-}
-
-func applySchema(ctx context.Context, db Querier) error {
-	if err := execSplit(ctx, db, schema); err != nil {
+	if err := execQueries(ctx, tx, schemaQueries...); err != nil {
 		return err
 	}
-	return setUserVersion(ctx, db, schemaCRC)
+
+	if err := setApplicationID(ctx, tx); err != nil {
+		return err
+	}
+	return setUserVersion(ctx, tx, schemaChecksum)
 }
 
-// schema is the SQL schema for the index database.
-//
-//go:embed schema.sql
-var schema []byte
-
-// schemaCRC is the CRC32 checksum of schema.
-var schemaCRC int32 = func() int32 {
+// schemaChecksum is the CRC32 checksum of schema.
+var schemaChecksum int32 = func() int32 {
 	crc := crc32.NewIEEE()
-	crc.Write(schema)
+	for _, stmt := range schemaQueries {
+		if _, err := crc.Write([]byte(stmt)); err != nil {
+			panic(err)
+		}
+	}
 	return int32(crc.Sum32())
 }()
 
-func execSplit(ctx context.Context, db Querier, sql []byte) error {
-	return splitSQL(sql, func(query string) error {
+// rawSchema is the SQL rawSchema for the index database.
+//
+//go:embed schema.sql
+var rawSchema []byte
+
+var schemaQueries = func() []string {
+	queries, err := splitSQL(rawSchema)
+	if err != nil {
+		panic(err)
+	}
+	return queries
+}()
+
+func execQueries(ctx context.Context, db Querier, queries ...string) error {
+	for _, query := range queries {
 		_, err := db.ExecContext(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to apply query: %w\n%s\n", err, query)
 		}
-		return nil
-	})
+	}
+	return nil
 }
-func splitSQL(sql []byte, handle func(string) error) error {
+func splitSQL(sql []byte) (queries []string, _ error) {
 	scanner := bufio.NewScanner(bytes.NewReader(sql))
 	scanner.Split(sqlSplit)
 	for scanner.Scan() {
@@ -133,32 +71,51 @@ func splitSQL(sql []byte, handle func(string) error) error {
 		if query == "" {
 			continue
 		}
-		if err := handle(query); err != nil {
-			return err
-		}
+		queries = append(queries, query)
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("failed to split SQL statements: %w", err)
+		return nil, fmt.Errorf("failed to split SQL statements: %w", err)
 	}
-	return nil
+	return queries, nil
 }
 
 const stmtDelimiter = ";---"
 
-func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, err error) {
+func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, rerr error) {
 	defer func() {
-		if err != nil || token == nil {
+		if rerr != nil || len(token) == 0 {
 			return
 		}
 		// Trim the token of any leading or trailing whitespace.
 		token = bytes.TrimSpace(token)
 		// Trim comment lines.
 		const commentPrefix = "--"
-		for adv, tkn := 0, []byte(commentPrefix); err == nil &&
-			((len(tkn) == 0 && adv > 0) ||
-				bytes.HasPrefix(tkn, []byte(commentPrefix))); adv, tkn, err = bufio.ScanLines(token, true) {
+		for {
+			adv, tkn, err := bufio.ScanLines(token, true)
+			if err != nil {
+				rerr = err
+				return
+			}
+			if adv == 0 {
+				return
+			}
+			if len(tkn) > 0 {
+				tkn = bytes.TrimSpace(tkn)
+				isComment := bytes.HasPrefix(tkn, []byte(commentPrefix))
+				if !isComment {
+					return
+				}
+			}
 			token = token[adv:]
 		}
+		// for adv, tkn :=
+		// 	0, []byte(commentPrefix); rerr ==
+		// 	nil &&
+		// 	((len(tkn) == 0 &&
+		// 		adv > 0) ||
+		// 		bytes.HasPrefix(tkn, []byte(commentPrefix))); adv, tkn, rerr = bufio.ScanLines(token, true) {
+		// 	token = token[adv:]
+		// }
 	}()
 
 	stmtDelim := bytes.Index(data, []byte(stmtDelimiter))
@@ -173,6 +130,14 @@ func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		// Ask for more data so we can find the EOL.
 		return 0, nil, nil
 	}
-	// We found a semi-colon...
-	return stmtDelim + 1, data[:stmtDelim+1], nil
+	// We found the stmtDelimiter, now find the next newline.
+	newline := bytes.IndexByte(data[stmtDelim+len([]byte(stmtDelimiter)):], '\n')
+	if newline == -1 {
+		if atEOF {
+			return len(data), data, nil
+		}
+		return 0, nil, nil
+	}
+
+	return stmtDelim + len(stmtDelimiter) + newline + 1, data[:stmtDelim+1], nil
 }

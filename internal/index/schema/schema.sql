@@ -17,11 +17,15 @@
 --
 -- go_version is the version of Go used to build the binary.
 CREATE TABLE metadata (
-  rowid          INTEGER  PRIMARY KEY CHECK (rowid = 1),
+  rowid INTEGER  PRIMARY KEY NOT NULL CHECK (rowid = 1),
+
   created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  build_revision TEXT     NOT NULL CHECK (build_revision != ''),
-  go_version     TEXT     NOT NULL CHECK (go_version != '')
+
+  go_version     TEXT NOT NULL CHECK (go_version     != ''),
+  build_revision TEXT NOT NULL CHECK (build_revision != ''),
+	go_sum_hash    INT  NOT NULL CHECK (go_sum_hash    != 0),
+  vendor         BOOL NOT NULL DEFAULT FALSE
 ) WITHOUT ROWID;---
 
 -- module stores all required modules and the directory they are located in.
@@ -35,20 +39,19 @@ CREATE TABLE metadata (
 --  1: local/main module
 --  2: required module
 --
--- vendor is a boolean that indicates whether the module is a vendored module.
---
 -- num_parts is the number of slash separated parts in the module's import path.
 CREATE TABLE module (
   rowid       INTEGER PRIMARY KEY,
   import_path TEXT    UNIQUE NOT NULL,
   dir         TEXT    NOT NULL CHECK (dir != ''),
   class       INT     NOT NULL CHECK (class >= 0 AND class <= 2),
-  vendor      BOOL    DEFAULT false,
+  num_pkgs    INT     NOT NULL DEFAULT 0,
   num_parts   INT     GENERATED ALWAYS AS (
       length(trim(import_path, '/'))
       - length(replace(trim(import_path, '/'), '/', ''))
       + iif(trim(import_path, '/') = '', 0, 1)
     ) STORED,
+
 
   sync   BOOL DEFAULT TRUE,
   keep   BOOL DEFAULT TRUE
@@ -98,9 +101,6 @@ CREATE TABLE package (
 --
 -- class is an integer that represents the type of module.
 --
--- vendor is a boolean that indicates whether the package is in a vendored
--- module.
---
 -- relative_num_parts is the number of slash separated parts in the package's relative_path.
 --
 -- total_num_parts is the number of slash separated parts in the package_import_path.
@@ -113,7 +113,6 @@ CREATE VIEW
     module_import_path,
     relative_path,
     class,
-    vendor,
     relative_num_parts,
     total_num_parts
   )
@@ -125,7 +124,6 @@ AS SELECT
   module.import_path AS module_import_path,
   relative_path,
   class,
-  vendor,
   package.num_parts AS relative_num_parts,
   package.num_parts + module.num_parts AS total_num_parts
 FROM

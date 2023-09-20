@@ -12,93 +12,78 @@ import (
 )
 
 type Sync struct {
-	ctx context.Context
-	tx  *sql.Tx
+	tx  _Tx
 	g   *errgroup.Group
+	ctx context.Context
 
 	stmt struct {
 		insertModule *sql.Stmt
 	}
 
 	pkgs chan Package
-	sync chan Module
 }
 
 func NewSync(ctx context.Context, db *sql.DB) (_ *Sync, rerr error) {
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := beginTx(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to being transaction: %w", err)
 	}
-	defer RollbackOnError(tx, &rerr)
+	defer tx.RollbackOnError(&rerr)
 
 	g, ctx := errgroup.WithContext(ctx)
 	s := Sync{
-		ctx: ctx,
 		tx:  tx,
 		g:   g,
+		ctx: ctx,
 	}
 
-	if err := s.init(); err != nil {
+	if err := s.initInsertModuleStmt(); err != nil {
+		return nil, err
+	}
+
+	if err := s.setAllModuleSyncKeepFalse(); err != nil {
 		return nil, err
 	}
 
 	return &s, nil
 }
 
-func (s *Sync) init() error {
+func (s *Sync) setAllModuleSyncKeepFalse() error {
 	const query = `
 UPDATE
   main.module
 SET
   sync = FALSE,
-  keep = FALSE;---
-UPDATE
-  main.package
-SET
-  keep = TRUE;---
+  keep = FALSE;
 `
-	if err := execSplit(s.ctx, s.tx, []byte(query)); err != nil {
-		return err
-	}
-
-	if err := s.initInsertModuleStmt(); err != nil {
-		return err
+	_, err := s.tx.ExecContext(s.ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to apply query: %w\n%s\n", err, query)
 	}
 
 	return nil
 }
 
-func (s *Sync) AddRequiredModules(mods ...Module) (needSync []Module, rerr error) {
-	defer RollbackOnError(s.tx, &rerr)
-	for _, mod := range mods {
-		sync, err := s.insertModule(&mod)
-		if err != nil {
-			return nil, err
-		}
-		if sync {
-			needSync = append(needSync, mod)
-		}
-	}
-
-	return needSync, nil
+func (s *Sync) AddModule(mod *Module) (needSync bool, rerr error) {
+	defer s.tx.RollbackOnError(&rerr)
+	return s.insertModule(mod)
 }
 
-func (s *Sync) AddPackages(pkgs ...Package) error {
-	if s.pkgs == nil {
-		s.pkgs = make(chan Package, len(pkgs))
+func (s *Sync) AddPackage(pkg Package) error {
+	if s.pkgs == nil &&
+		s.ctx.Err() == nil {
+		s.pkgs = make(chan Package, 1)
 		s.g.Go(s.syncPackages)
 	}
-	for _, pkg := range pkgs {
-		select {
-		case <-s.ctx.Done():
-			return s.ctx.Err()
-		case s.pkgs <- pkg:
-		}
+	select {
+	case <-s.ctx.Done():
+	case s.pkgs <- pkg:
 	}
-	return nil
+	return s.ctx.Err()
 }
+
 func (s *Sync) syncPackages() (rerr error) {
-	defer RollbackOnError(s.tx, &rerr)
+	defer s.tx.RollbackOnError(&rerr)
 	stmt, err := s.insertPackageStmt()
 	if err != nil {
 		return err
@@ -108,9 +93,10 @@ func (s *Sync) syncPackages() (rerr error) {
 			rerr = errors.Join(rerr, fmt.Errorf("failed to close insert package statement: %w", err))
 		}
 	}()
-	for s.ctx.Err() == nil {
+	for {
 		select {
 		case <-s.ctx.Done():
+			return s.ctx.Err()
 		case pkg, ok := <-s.pkgs:
 			if !ok {
 				return nil
@@ -121,10 +107,9 @@ func (s *Sync) syncPackages() (rerr error) {
 			}
 		}
 	}
-	return s.ctx.Err()
 }
 
-func (s *Sync) Finish(ctx context.Context) (rerr error) {
+func (s *Sync) Finish(ctx context.Context, meta Metadata) (rerr error) {
 	defer func() {
 		if err := s.stmt.insertModule.Close(); err != nil {
 			rerr = errors.Join(rerr, fmt.Errorf("failed to close insert module statement: %w", err))
@@ -133,26 +118,26 @@ func (s *Sync) Finish(ctx context.Context) (rerr error) {
 
 	if s.pkgs != nil {
 		close(s.pkgs)
-	}
-	if err := s.g.Wait(); err != nil {
-		return err
+		if err := s.g.Wait(); err != nil {
+			return err
+		}
 	}
 
-	if err := s.finish(ctx); err != nil {
+	if err := s.finish(ctx, meta); err != nil {
 		return fmt.Errorf("failed to finish sync: %w", err)
 	}
 
 	return nil
 }
-func (s *Sync) finish(ctx context.Context) (rerr error) {
-	defer RollbackOrCommit(s.tx, &rerr)
+func (s *Sync) finish(ctx context.Context, meta Metadata) (rerr error) {
+	defer s.tx.RollbackOrCommit(&rerr)
 	if err := s.pruneModules(ctx); err != nil {
 		return err
 	}
 	if err := s.prunePackages(ctx); err != nil {
 		return err
 	}
-	if err := s.upsertMetadata(ctx); err != nil {
+	if err := s.upsertMetadata(ctx, meta); err != nil {
 		return err
 	}
 	return nil

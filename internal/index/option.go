@@ -32,6 +32,8 @@ type options struct {
 	mode               Mode
 	resyncInterval     time.Duration
 	disableProgressBar bool
+	mainModPath        string
+	dbPath             string
 }
 
 func newOptions(opts ...Option) options {
@@ -73,5 +75,11 @@ func WithResyncInterval(interval time.Duration) Option {
 func WithNoProgressBar() Option {
 	return func(o *options) {
 		o.disableProgressBar = true
+	}
+}
+
+func WithDBPath(dbPath string) Option {
+	return func(o *options) {
+		o.dbPath = dbPath
 	}
 }

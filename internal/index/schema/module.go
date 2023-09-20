@@ -57,41 +57,51 @@ type Module struct {
 	ImportPath string
 	Dir        string
 	Class      Class
-	Vendor     bool
 }
 
 func (s *Sync) initInsertModuleStmt() error {
-	var err error
-	s.stmt.insertModule, err = s.tx.PrepareContext(s.ctx, `
+	const query = `
 INSERT INTO 
   main.module (
-    import_path, 
-    dir, 
-    class, 
-    vendor
+    import_path,
+    dir,
+    class
   )
 VALUES (
-  ?, ?, ?, ?
+  ?, ?, ?
 ) 
 ON CONFLICT (
   import_path
 ) 
-DO UPDATE SET
-  dir=excluded.dir,
-  class=excluded.class,
-  vendor=excluded.vendor,
-  sync=(dir != excluded.dir),
-  keep=TRUE
+DO UPDATE SET (
+    sync,
+    keep
+  ) = (
+    dir != excluded.dir,
+    TRUE
+  ), (
+    dir, 
+    class
+  ) = (
+    excluded.dir,
+    excluded.class
+  )
 RETURNING 
   rowid,
   sync
-;
-`)
-	return err
+;`
+
+	stmt, err := s.tx.PrepareContext(s.ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to prepare insert module statement: %w", err)
+	}
+
+	s.stmt.insertModule = stmt
+	return nil
 }
 
 func (s *Sync) insertModule(mod *Module) (needSync bool, _ error) {
-	row := s.stmt.insertModule.QueryRowContext(s.ctx, mod.ImportPath, mod.Dir, mod.Class, mod.Vendor)
+	row := s.stmt.insertModule.QueryRowContext(s.ctx, mod.ImportPath, mod.Dir, mod.Class)
 	if err := row.Err(); err != nil {
 		return false, fmt.Errorf("failed to insert module: %w", err)
 	}
@@ -131,13 +141,12 @@ func selectModulesFromWhere(ctx context.Context, db Querier, mods []Module, from
 }
 func selectModulesFromWhereStmt(ctx context.Context, db Querier, from, where string) (*sql.Stmt, error) {
 	query := `
-SELECT 
-  rowid, 
-  import_path, 
-  dir, 
-  class, 
-  vendor 
-FROM 
+SELECT
+  rowid,
+  import_path,
+  dir,
+  class
+FROM
   `
 	query += from
 	if where != "" {
@@ -183,16 +192,14 @@ func scanModule(row Scanner) (mod Module, _ error) {
 		importPath sql.NullString
 		dir        sql.NullString
 		class      sql.NullInt64
-		vendor     sql.NullBool
 	)
-	if err := row.Scan(&mod.ID, &importPath, &dir, &class, &vendor); err != nil {
+	if err := row.Scan(&mod.ID, &importPath, &dir, &class); err != nil {
 		return mod, err
 	}
 
 	mod.ImportPath = importPath.String
 	mod.Dir = dir.String
 	mod.Class = Class(class.Int64)
-	mod.Vendor = vendor.Bool
 
 	return mod, nil
 }

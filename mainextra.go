@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -18,19 +17,11 @@ func packageIndex() *index.Index {
 	if localModuleRoot == "" {
 		return nil
 	}
-	path := indexCachePath(localModuleRoot)
-	if err := os.Mkdir(filepath.Dir(path), 0755); err != nil && !os.IsExist(err) {
-		dlog.Printf("failed to create index cache dir: %v", err)
-		return nil
-	}
-	pkgIdx, err := index.Load(context.Background(), path, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
+	pkgIdx, err := index.Load(context.Background(), localModuleRoot, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
 	if err != nil {
 		dlog.Printf("index.Load: %v", err)
 	}
 	return pkgIdx
-}
-func indexCachePath(localModuleRoot string) string {
-	return filepath.Join(localModuleRoot, ".go-doc", "packages.sqlite3")
 }
 func dirsToIndexModules(dirs ...Dir) []godoc.PackageDir {
 	mods := make([]godoc.PackageDir, len(dirs))

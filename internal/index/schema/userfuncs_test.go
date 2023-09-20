@@ -15,7 +15,17 @@ var _ = BeforeSuite(func() {
 var _ = Describe("User defined functions", func() {
 	var db *sql.DB
 	BeforeEach(func(ctx context.Context) {
-		db = initDB(ctx, tempDBPath())
+		dbPath := tempDBPath()
+		By("opening db " + dbPath)
+		var err error
+		db, err = OpenDB(ctx, dbPath)
+		Expect(err).
+			To(Succeed(), "OpenDB")
+		DeferCleanup(func() {
+			By("closing the database")
+			Expect(db.Close()).
+				To(Succeed(), "failed to close database")
+		})
 	})
 
 	DescribeTable("input", func(ctx context.Context, path, expFirstPart, expRemainingParts string, expNumParts int64) {

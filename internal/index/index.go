@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 
 	"golang.org/x/sync/errgroup"
 	_ "modernc.org/sqlite"
@@ -23,16 +24,26 @@ type Index struct {
 	g      *errgroup.Group
 }
 
-func Load(ctx context.Context, dbPath string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
+const DefaultRelativeDBPath = ".go-doc/packages.sqlite3"
+
+func DBPath(mainModPath string) string {
+	return filepath.Join(mainModPath, DefaultRelativeDBPath)
+}
+
+func Load(ctx context.Context, mainModPath string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
 	o := newOptions(opts...)
 	if o.mode == ModeOff {
 		return nil, nil
 	}
+	o.mainModPath = mainModPath
+	if o.dbPath == "" {
+		o.dbPath = DBPath(mainModPath)
+	}
 
-	dlog.Printf("loading %q", dbPath)
+	dlog.Printf("loading database %s", o.dbPath)
 	dlog.Printf("options: %+v", o)
 
-	db, err := schema.OpenDB(ctx, dbPath)
+	db, err := schema.OpenDB(ctx, o.dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open index database: %w", err)
 	}

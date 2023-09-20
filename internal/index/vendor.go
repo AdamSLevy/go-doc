@@ -12,36 +12,35 @@ import (
 
 func (idx *Index) syncVendoredModules(ctx context.Context, sync *schema.Sync, vendorRoot godoc.PackageDir) error {
 	const vendor = true
-	needsSync, err := sync.AddRequiredModules(schema.Module{
+	needsSync, err := sync.AddModule(&schema.Module{
 		ImportPath: vendorRoot.ImportPath,
 		Dir:        vendorRoot.Dir,
 		Class:      schema.ClassLocal,
-		Vendor:     true,
 	})
 	if err != nil {
 		return err
 	}
 
-	if len(needsSync) == 0 && idx.vendorUnchanged(vendorRoot) {
+	if !needsSync && idx.vendorUnchanged(vendorRoot) {
 		return nil
 	}
 
 	return vendored.Parse(ctx, vendorRoot.Dir, func(ctx context.Context, mod godoc.PackageDir, pkgs ...godoc.PackageDir) error {
-		needsSync, err := sync.AddRequiredModules(schema.Module{
+		schemaMod := schema.Module{
 			ImportPath: mod.ImportPath,
 			Dir:        mod.Dir,
 			Class:      schema.ClassLocal,
-			Vendor:     true,
-		})
+		}
+		needsSync, err := sync.AddModule(&schemaMod)
 		if err != nil {
 			return err
 		}
-		if len(needsSync) == 0 {
+		if !needsSync {
 			return nil
 		}
 		for _, pkg := range pkgs {
-			err := sync.AddPackages(schema.Package{
-				ModuleID:     needsSync[0].ID,
+			err := sync.AddPackage(schema.Package{
+				ModuleID:     schemaMod.ID,
 				RelativePath: pkg.ImportPath,
 			})
 			if err != nil {

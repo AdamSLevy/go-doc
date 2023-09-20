@@ -25,20 +25,25 @@ func (idx *Index) needsSync(ctx context.Context) (bool, error) {
 	case ModeForceSync:
 		return true, nil
 	}
-	var err error
-	idx.Metadata, err = schema.SelectMetadata(ctx, idx.db)
-	if ignoreErrNoRows(err) != nil {
+
+	meta, err := schema.NewMetadata(idx.options.mainModPath)
+	if err != nil {
 		return false, err
 	}
 
-	if idx.Metadata.BuildRevision != schema.BuildRevision ||
-		idx.Metadata.GoVersion != schema.GoVersion {
+	dbMeta, err := schema.SelectMetadata(ctx, idx.db)
+	if ignoreErrNoRows(err) != nil {
+		return false, err
+	}
+	meta.CreatedAt, meta.UpdatedAt = dbMeta.CreatedAt, dbMeta.UpdatedAt
+	idx.Metadata = meta
+	if meta != dbMeta {
 		return true, nil
 	}
 
-	dlogSync.Printf("created at: %v", idx.CreatedAt.Local())
-	dlogSync.Printf("updated at: %v", idx.UpdatedAt.Local())
-	return time.Since(idx.UpdatedAt) > idx.options.resyncInterval, nil
+	dlogSync.Printf("created at: %v", dbMeta.CreatedAt.Local())
+	dlogSync.Printf("updated at: %v", dbMeta.UpdatedAt.Local())
+	return time.Since(dbMeta.UpdatedAt) > idx.options.resyncInterval, nil
 }
 func ignoreErrNoRows(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
@@ -61,7 +66,7 @@ func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDi
 		return err
 	}
 	defer func() {
-		retErr = errors.Join(retErr, sync.Finish(ctx))
+		retErr = errors.Join(retErr, sync.Finish(ctx, idx.Metadata))
 	}()
 
 	pb := newProgressBar(idx.options, len(codeRoots)+1, "syncing code roots")
@@ -72,23 +77,25 @@ func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDi
 	g.Go(func() error {
 		defer close(syncNext)
 		for _, codeRoot := range codeRoots {
-			needSync, err := sync.AddRequiredModules(codeRootToModule(codeRoot))
+			mod := codeRootToModule(codeRoot)
+			needSync, err := sync.AddModule(&mod)
 			if err != nil {
 				return err
 			}
-			for _, mod := range needSync {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case syncNext <- mod:
-				}
+			if !needSync {
 				pb.Add(1)
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case syncNext <- mod:
 			}
 		}
 		return nil
 	})
 	g.Go(func() error {
-		for {
+		for ctx.Err() == nil {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -99,8 +106,10 @@ func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDi
 				if err := idx.syncModulePackages(ctx, sync, mod); err != nil {
 					return err
 				}
+				pb.Add(1)
 			}
 		}
+		return ctx.Err()
 	})
 
 	if err := g.Wait(); err != nil {
@@ -110,12 +119,11 @@ func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDi
 	return nil
 }
 func codeRootToModule(codeRoot godoc.PackageDir) schema.Module {
-	class, vendor := schema.ParseClassVendor(codeRoot)
+	class, _ := schema.ParseClassVendor(codeRoot)
 	return schema.Module{
 		ImportPath: codeRoot.ImportPath,
 		Dir:        codeRoot.Dir,
 		Class:      class,
-		Vendor:     vendor,
 	}
 }
 
@@ -159,7 +167,7 @@ func (idx *Index) syncModulePackages(ctx context.Context, sync *schema.Sync, roo
 							RelativePath: relativePath,
 							ImportPath:   path.Join(pkg.ImportPath, relativePath),
 						}
-						if err := sync.AddPackages(sPkg); err != nil {
+						if err := sync.AddPackage(sPkg); err != nil {
 							return err
 						}
 					}

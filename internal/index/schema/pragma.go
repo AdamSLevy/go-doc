@@ -31,26 +31,25 @@ func assertApplicationID(ctx context.Context, db Querier) error {
 	}
 	return nil
 }
-func getApplicationID(ctx context.Context, db Querier) (appID int32, _ error) {
-	return appID, getPragma(ctx, db, pragmaApplicationID, &appID)
+func getApplicationID(ctx context.Context, db Querier) (appID int32, err error) {
+	err = getPragma(ctx, db, pragmaApplicationID, &appID)
+	return
 }
 func setApplicationID(ctx context.Context, db Querier) error {
 	return setPragma(ctx, db, pragmaApplicationID, sqliteApplicationID)
 }
 
-func getUserVersion(ctx context.Context, db Querier) (userVersion int32, _ error) {
-	return userVersion, getPragma(ctx, db, pragmaUserVersion, &userVersion)
+func getUserVersion(ctx context.Context, db Querier) (userVersion int32, err error) {
+	err = getPragma(ctx, db, pragmaUserVersion, &userVersion)
+	return
 }
 func setUserVersion(ctx context.Context, db Querier, userVersion int32) error {
 	return setPragma(ctx, db, pragmaUserVersion, userVersion)
 }
 
-func getSchemaVersion(ctx context.Context, db Querier) (uint32, error) {
-	var schemaVersion uint32
-	if err := getPragma(ctx, db, pragmaSchemaVersion, &schemaVersion); err != nil {
-		return 0, err
-	}
-	return schemaVersion, nil
+func getSchemaVersion(ctx context.Context, db Querier) (schemaVersion int32, err error) {
+	err = getPragma(ctx, db, pragmaSchemaVersion, &schemaVersion)
+	return
 }
 
 func enableForeignKeys(ctx context.Context, db Querier) error {
@@ -64,7 +63,6 @@ func enableRecursiveTriggers(ctx context.Context, db Querier) error {
 func getPragma(ctx context.Context, db Querier, key string, val any) error {
 	query := fmt.Sprintf(`PRAGMA %s;`, key)
 	row := db.QueryRowContext(ctx, query)
-
 	if err := row.Err(); err != nil {
 		return fmt.Errorf("failed to query %s: %w", query, err)
 	}
