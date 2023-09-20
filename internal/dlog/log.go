@@ -60,6 +60,7 @@ func EnableFlag() flag.Value         { return defaultLogger.EnableFlag() }
 func Print(v ...any)                 { defaultLogger.Output(2, fmt.Sprint(v...)) }
 func Printf(format string, v ...any) { defaultLogger.Output(2, fmt.Sprintf(format, v...)) }
 func Println(v ...any)               { defaultLogger.Output(2, fmt.Sprintln(v...)) }
+func Output(calldepth int, s string) { defaultLogger.Output(calldepth+2, s) }
 func Dump(v ...any)                  { defaultLogger.Dump(v...) }
 func Child(prefix string) Logger     { return defaultLogger.Child(prefix) }
 
@@ -90,6 +91,8 @@ type Logger interface {
 	Println(...any)
 	SetOutput(io.Writer)
 
+	Output(calldepth int, s string)
+
 	// Dump prints the spew representation of the arguments.
 	Dump(...any)
 }
@@ -111,6 +114,8 @@ func newLogger(output io.Writer, prefix string, flag int) *logger {
 		Logger: log.New(io.Discard, prefix+": ", flag),
 	}
 }
+
+func (l *logger) Output(calldepth int, s string) { l.Logger.Output(calldepth+2, s) }
 
 func (l *logger) Child(child string) Logger {
 	prefix := l.Prefix()
