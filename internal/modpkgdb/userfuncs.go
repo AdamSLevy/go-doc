@@ -1,4 +1,4 @@
-package schema
+package modpkgdb
 
 import (
 	"database/sql/driver"

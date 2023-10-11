@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"aslevy.com/go-doc/internal/godoc"
-	"aslevy.com/go-doc/internal/index/schema"
+	"aslevy.com/go-doc/internal/modpkgdb"
 )
 
 var dlogSearch = dlog.Child("search")
@@ -64,7 +64,7 @@ func scanPackageDirs(rows *sql.Rows, handler func(godoc.PackageDir) error) error
 	}
 	return rows.Err()
 }
-func scanPackageDir(row schema.Scanner) (godoc.PackageDir, error) {
+func scanPackageDir(row modpkgdb.Scanner) (godoc.PackageDir, error) {
 	var pkg godoc.PackageDir
 	var min int
 	return pkg, row.Scan(&pkg.ImportPath, &pkg.Dir, &min)
@@ -75,13 +75,14 @@ func (idx *Index) searchRows(ctx context.Context, path string, opts ...SearchOpt
 		return nil, err
 	}
 
-	query, params, err := idx.searchQueryParams(ctx, path, opts...)
-	if err != nil {
-		return nil, err
-	}
+	// query, params, err := idx.searchQueryParams(ctx, path, opts...)
+	// if err != nil {
+	// 	return nil, err
+	// }
 	// dlogSearch.Printf("query: \n%s", query)
 	// dlogSearch.Printf("params: \n%+v", params)
-	return idx.db.QueryContext(ctx, query, params...)
+	// return idx.db.QueryContext(ctx, query, params...)
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (idx *Index) searchQueryParams(ctx context.Context, path string, opts ...SearchOption) (query string, params []any, _ error) {
@@ -186,8 +187,8 @@ func searchLike(path string) (numParts int, like *strings.Builder) {
 	}
 	return numParts, like
 }
-func (idx *Index) maxPartialNumParts(ctx context.Context) (int, error) {
-	const query = `SELECT MAX(numParts) FROM partial;`
-	var max int
-	return max, idx.db.QueryRowContext(ctx, query).Scan(&max)
+func (idx *Index) maxPartialNumParts(ctx context.Context) (max int, _ error) {
+	// const query = `SELECT MAX(numParts) FROM partial;`
+	// return max, idx.db.QueryRowContext(ctx, query).Scan(&max)
+	return 0, nil
 }

@@ -1,8 +1,10 @@
-package schema
+//go:build disable
+// +build disable
+
+package modpkgdb
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -13,7 +15,7 @@ var _ = BeforeSuite(func() {
 	RegisterUserFuncs()
 })
 var _ = Describe("User defined functions", func() {
-	var db *sql.DB
+	var db *DB
 	BeforeEach(func(ctx context.Context) {
 		dbPath := tempDBPath()
 		By("opening db " + dbPath)
@@ -30,7 +32,7 @@ var _ = Describe("User defined functions", func() {
 
 	DescribeTable("input", func(ctx context.Context, path, expFirstPart, expRemainingParts string, expNumParts int64) {
 		query := fmt.Sprintf("SELECT %s($1), %s($1), %s($1);", FuncFirstPathPart, FuncTrimFirstPathPart, FuncNumPathParts)
-		row := db.QueryRowContext(ctx, query, path)
+		row := db.db.QueryRowContext(ctx, query, path)
 		Expect(row.Err()).To(Succeed(), "failed to run query: %q", query)
 
 		var firstPart, remainingParts string

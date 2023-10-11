@@ -32,8 +32,12 @@ type options struct {
 	mode               Mode
 	resyncInterval     time.Duration
 	disableProgressBar bool
-	mainModPath        string
-	dbPath             string
+
+	dbPath string
+
+	goRootDir     string
+	goModCacheDir string
+	mainModDir    string
 }
 
 func newOptions(opts ...Option) options {

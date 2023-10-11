@@ -1,11 +1,11 @@
-package schema
+package modpkgdb
 
 import (
 	"bufio"
 	"bytes"
 	"context"
-	"database/sql"
 	_ "embed"
+	"errors"
 	"fmt"
 	"hash/crc32"
 
@@ -13,21 +13,16 @@ import (
 )
 
 // applySchema execs all schemaQueries against the db.
-func applySchema(ctx context.Context, db *sql.DB) (rerr error) {
-	tx, err := beginTx(ctx, db)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.RollbackOrCommit(&rerr)
-
-	if err := execQueries(ctx, tx, schemaQueries...); err != nil {
+func applySchema(ctx context.Context, db Querier) error {
+	if err := execQueries(ctx, db, schemaQueries...); err != nil {
 		return err
 	}
 
-	if err := setApplicationID(ctx, tx); err != nil {
+	if err := setApplicationID(ctx, db); err != nil {
 		return err
 	}
-	return setUserVersion(ctx, tx, schemaChecksum)
+
+	return setUserVersion(ctx, db, schemaChecksum)
 }
 
 // schemaChecksum is the CRC32 checksum of schema.
@@ -83,12 +78,14 @@ const stmtDelimiter = ";---"
 
 func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, rerr error) {
 	defer func() {
-		if rerr != nil || len(token) == 0 {
+		if (rerr != nil &&
+			!errors.Is(rerr, bufio.ErrFinalToken)) ||
+			advance == 0 {
 			return
 		}
 		// Trim the token of any leading or trailing whitespace.
 		token = bytes.TrimSpace(token)
-		// Trim comment lines.
+		// Trim leading comment lines.
 		const commentPrefix = "--"
 		for {
 			adv, tkn, err := bufio.ScanLines(token, true)
@@ -101,21 +98,12 @@ func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, rerr error) {
 			}
 			if len(tkn) > 0 {
 				tkn = bytes.TrimSpace(tkn)
-				isComment := bytes.HasPrefix(tkn, []byte(commentPrefix))
-				if !isComment {
+				if isComment := bytes.HasPrefix(tkn, []byte(commentPrefix)); !isComment {
 					return
 				}
 			}
 			token = token[adv:]
 		}
-		// for adv, tkn :=
-		// 	0, []byte(commentPrefix); rerr ==
-		// 	nil &&
-		// 	((len(tkn) == 0 &&
-		// 		adv > 0) ||
-		// 		bytes.HasPrefix(tkn, []byte(commentPrefix))); adv, tkn, rerr = bufio.ScanLines(token, true) {
-		// 	token = token[adv:]
-		// }
 	}()
 
 	stmtDelim := bytes.Index(data, []byte(stmtDelimiter))
@@ -125,19 +113,19 @@ func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, rerr error) {
 			// That's everything... don't treat this as an error to
 			// allow for trailing whitespace, comments, or
 			// statements that don't use the stmtDelimeter.
-			return len(data), data, nil
+			return len(data), data, bufio.ErrFinalToken
 		}
 		// Ask for more data so we can find the EOL.
 		return 0, nil, nil
 	}
 	// We found the stmtDelimiter, now find the next newline.
-	newline := bytes.IndexByte(data[stmtDelim+len([]byte(stmtDelimiter)):], '\n')
+	newline := bytes.Index(data[stmtDelim+len([]byte(stmtDelimiter)):], []byte("\n"))
 	if newline == -1 {
 		if atEOF {
-			return len(data), data, nil
+			return len(data), data, bufio.ErrFinalToken
 		}
 		return 0, nil, nil
 	}
 
-	return stmtDelim + len(stmtDelimiter) + newline + 1, data[:stmtDelim+1], nil
+	return stmtDelim + len([]byte(stmtDelimiter)) + newline + 1, data[:stmtDelim+1], nil
 }

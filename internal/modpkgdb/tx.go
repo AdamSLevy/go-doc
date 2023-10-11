@@ -1,4 +1,4 @@
-package schema
+package modpkgdb
 
 import (
 	"context"
@@ -9,19 +9,19 @@ import (
 	"aslevy.com/go-doc/internal/dlog"
 )
 
-type _Tx struct {
+type Tx struct {
 	*sql.Tx
 }
 
-func beginTx(ctx context.Context, db *sql.DB) (_Tx, error) {
-	tx, err := db.BeginTx(ctx, nil)
+func (db *DB) beginTx(ctx context.Context) (Tx, error) {
+	tx, err := db.db.BeginTx(ctx, nil)
 	if err != nil {
-		return _Tx{}, fmt.Errorf("failed to begin transaction: %w", err)
+		return Tx{}, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	return _Tx{tx}, nil
+	return Tx{tx}, nil
 }
 
-func (tx _Tx) RollbackOrCommit(rerr *error) {
+func (tx Tx) RollbackOrCommit(rerr *error) {
 	if *rerr != nil {
 		dlog.Output(1, "rolling back...")
 		if err := tx.Rollback(); err != nil {
@@ -33,7 +33,7 @@ func (tx _Tx) RollbackOrCommit(rerr *error) {
 		*rerr = fmt.Errorf("failed to commit transaction: %w", err)
 	}
 }
-func (tx _Tx) RollbackOnError(rerr *error) {
+func (tx Tx) RollbackOnError(rerr *error) {
 	if *rerr == nil {
 		return
 	}

@@ -1,4 +1,4 @@
-package schema
+package modpkgdb
 
 import (
 	"context"
@@ -16,6 +16,7 @@ const (
 	pragmaSchemaVersion     = "schema_version"
 	pragmaForeignKeys       = "foreign_keys"
 	pragmaRecursiveTriggers = "recursive_triggers"
+	pragmaJournalMode       = "journal_mode"
 )
 
 func assertApplicationID(ctx context.Context, db Querier) error {
@@ -52,12 +53,16 @@ func getSchemaVersion(ctx context.Context, db Querier) (schemaVersion int32, err
 	return
 }
 
-func enableForeignKeys(ctx context.Context, db Querier) error {
-	return setPragma(ctx, db, pragmaForeignKeys, true)
+func (db *DB) enableForeignKeys(ctx context.Context) error {
+	return setPragma(ctx, db.db, pragmaForeignKeys, true)
 }
 
-func enableRecursiveTriggers(ctx context.Context, db Querier) error {
-	return setPragma(ctx, db, pragmaRecursiveTriggers, true)
+func (db *DB) enableRecursiveTriggers(ctx context.Context) error {
+	return setPragma(ctx, db.db, pragmaRecursiveTriggers, true)
+}
+
+func (db *DB) journalModeWAL(ctx context.Context) error {
+	return setPragma(ctx, db.db, pragmaJournalMode, "wal")
 }
 
 func getPragma(ctx context.Context, db Querier, key string, val any) error {

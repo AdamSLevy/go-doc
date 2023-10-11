@@ -35,7 +35,7 @@ func BenchmarkLoadSync_stdlib(b *testing.B) {
 	var idx *Index
 	var err error
 	benchmark.Run(b, nil, func() {
-		idx, err = Load(ctx, dbPath, codeRoots, loadOpts())
+		idx, err = Load(ctx, dbPath, "", "", "", codeRoots, loadOpts())
 		require.NoError(err)
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
@@ -55,7 +55,7 @@ func BenchmarkLoadSync_InMemory_stdlib(b *testing.B) {
 	var idx *Index
 	var err error
 	benchmark.Run(b, nil, func() {
-		idx, err = Load(ctx, dbMem, codeRoots, loadOpts())
+		idx, err = Load(ctx, dbMem, "", "", "", codeRoots, loadOpts())
 		require.NoError(err)
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
@@ -77,12 +77,12 @@ func BenchmarkLoadReSync_stdlib(b *testing.B) {
 	var err error
 	benchmark.Run(b, func() {
 		// sync initially prior to running the benchmark
-		idx, err = Load(ctx, dbPath, codeRoots, opts)
+		idx, err = Load(ctx, dbPath, "", "", "", codeRoots, opts)
 		require.NoError(err)
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
 	}, func() {
-		idx, err = Load(ctx, dbPath, codeRoots, opts)
+		idx, err = Load(ctx, dbPath, "", "", "", codeRoots, opts)
 		require.NoError(err)
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
@@ -104,12 +104,12 @@ func BenchmarkLoadForceSync_stdlib(b *testing.B) {
 	var err error
 	benchmark.Run(b, func() {
 		// sync initially prior to running the benchmark
-		idx, err = Load(ctx, dbPath, codeRoots, opts)
+		idx, err = Load(ctx, dbPath, "", "", "", codeRoots, opts)
 		require.NoError(err)
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
 	}, func() {
-		idx, err = Load(ctx, dbPath, codeRoots, opts)
+		idx, err = Load(ctx, dbPath, "", "", "", codeRoots, opts)
 		require.NoError(err)
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
@@ -131,12 +131,12 @@ func BenchmarkLoadSkipSync_stdlib(b *testing.B) {
 	var err error
 	benchmark.Run(b, func() {
 		// sync initially prior to running the benchmark
-		idx, err = Load(ctx, dbPath, codeRoots, opts)
+		idx, err = Load(ctx, dbPath, "", "", "", codeRoots, opts)
 		require.NoError(err)
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())
 	}, func() {
-		idx, err = Load(ctx, dbPath, codeRoots, opts)
+		idx, err = Load(ctx, dbPath, "", "", "", codeRoots, opts)
 		require.NoError(err)
 		require.NoError(idx.waitSync())
 		require.NoError(idx.Close())

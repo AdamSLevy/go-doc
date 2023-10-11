@@ -1,11 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"os/exec"
-	"path/filepath"
-	"strings"
 
 	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/godoc"
@@ -13,11 +9,10 @@ import (
 )
 
 func packageIndex() *index.Index {
-	localModuleRoot := moduleRootDir(goCmd())
-	if localModuleRoot == "" {
+	if GOMOD == "" {
 		return nil
 	}
-	pkgIdx, err := index.Load(context.Background(), localModuleRoot, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
+	pkgIdx, err := index.Load(context.Background(), GOMOD, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
 	if err != nil {
 		dlog.Printf("index.Load: %v", err)
 	}
@@ -29,13 +24,4 @@ func dirsToIndexModules(dirs ...Dir) []godoc.PackageDir {
 		mods[i] = godoc.NewPackageDir(dir.importPath, dir.dir)
 	}
 	return mods
-}
-func moduleRootDir(goCmd string) string {
-	args := []string{"env", "GOMOD"}
-	stdout, err := exec.Command(goCmd, args...).Output()
-	if err != nil {
-		dlog.Printf("failed to run `%s %s`: %v", goCmd, strings.Join(args, " "), err)
-		return ""
-	}
-	return filepath.Dir(string(bytes.TrimSpace(stdout)))
 }

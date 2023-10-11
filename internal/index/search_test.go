@@ -11,7 +11,7 @@ import (
 
 	"aslevy.com/go-doc/internal/benchmark"
 	"aslevy.com/go-doc/internal/godoc"
-	"aslevy.com/go-doc/internal/index/schema"
+	"aslevy.com/go-doc/internal/modpkgdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +32,7 @@ func (test indexTest) run(t *testing.T) {
 	require := require.New(t)
 	t.Helper()
 	ctx := context.Background()
-	pkgs, err := Load(ctx, dbMem, test.mods, loadOpts())
+	pkgs, err := Load(ctx, dbMem, "", "", "", test.mods, loadOpts())
 	require.NoError(err)
 	t.Cleanup(func() {
 		require.NoError(pkgs.Close())
@@ -151,7 +151,7 @@ func benchmarkSearch_stdlib(b *testing.B, partial bool) {
 	var pkgIdx *Index
 	var randomPartial *randomPartial
 	benchmark.Run(b, func() {
-		pkgIdx, err = Load(ctx, dbFilePath(b), codeRoots, loadOpts())
+		pkgIdx, err = Load(ctx, dbFilePath(b), "", "", "", codeRoots, loadOpts())
 		require.NoError(err)
 		b.Cleanup(func() { require.NoError(pkgIdx.Close()) })
 
@@ -173,7 +173,7 @@ func TestRandomPartialSearchPath(t *testing.T) {
 	ctx := context.Background()
 	codeRoots := stdlibCodeRoots()
 
-	pkgIdx, err := Load(ctx, dbFilePath(t), codeRoots, loadOpts())
+	pkgIdx, err := Load(ctx, dbFilePath(t), "", "", "", codeRoots, loadOpts())
 	require.NoError(err)
 	t.Cleanup(func() { require.NoError(pkgIdx.Close()) })
 
@@ -211,7 +211,7 @@ func BenchmarkRandomPartialSearchPath(b *testing.B) {
 		codeRoots := stdlibCodeRoots()
 		opts := WithOptions(WithNoProgressBar())
 
-		pkgIdx, err = Load(ctx, dbMem, codeRoots, opts)
+		pkgIdx, err = Load(ctx, dbMem, "", "", "", codeRoots, opts)
 		require.NoError(err)
 		b.Cleanup(func() { require.NoError(pkgIdx.Close()) })
 
@@ -229,20 +229,21 @@ func (pkgIdx *Index) randomPartial() (*randomPartial, error) {
 	if err := pkgIdx.waitSync(); err != nil {
 		return nil, err
 	}
-	stmt, err := pkgIdx.db.Prepare(`
-SELECT parts FROM partial ORDER BY RANDOM();
-`)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := stmt.Query()
-	if err != nil {
-		return nil, err
-	}
-	return &randomPartial{
-		stmt: stmt,
-		rows: rows,
-	}, nil
+	return nil, nil
+	// stmt, err := pkgIdx.db.Prepare(`
+	// SELECT parts FROM partial ORDER BY RANDOM();
+	// `)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// rows, err := stmt.Query()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return &randomPartial{
+	// 	stmt: stmt,
+	// 	rows: rows,
+	// }, nil
 }
 
 type randomPartial struct {
@@ -275,7 +276,7 @@ func (r *randomPartial) randomPartial() (string, error) {
 	return scanImportPath(r.rows)
 
 }
-func scanImportPath(rows schema.Scanner) (string, error) {
+func scanImportPath(rows modpkgdb.Scanner) (string, error) {
 	var path string
 	return path, rows.Scan(&path)
 }

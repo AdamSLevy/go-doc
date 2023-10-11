@@ -2,83 +2,50 @@ package index
 
 import (
 	"context"
-	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"aslevy.com/go-doc/internal/godoc"
-	"aslevy.com/go-doc/internal/index/schema"
-	"golang.org/x/sync/errgroup"
+	"aslevy.com/go-doc/internal/modpkgdb"
 )
 
 var dlogSync = dlog.Child("sync")
 
-func (idx *Index) needsSync(ctx context.Context) (bool, error) {
-	switch idx.options.mode {
-	case ModeOff, ModeSkipSync:
-		return false, nil
-	case ModeForceSync:
-		return true, nil
-	}
-
-	meta, err := schema.NewMetadata(idx.options.mainModPath)
-	if err != nil {
-		return false, err
-	}
-
-	dbMeta, err := schema.SelectMetadata(ctx, idx.db)
-	if ignoreErrNoRows(err) != nil {
-		return false, err
-	}
-	meta.CreatedAt, meta.UpdatedAt = dbMeta.CreatedAt, dbMeta.UpdatedAt
-	idx.Metadata = meta
-	if meta != dbMeta {
-		return true, nil
-	}
-
-	dlogSync.Printf("created at: %v", dbMeta.CreatedAt.Local())
-	dlogSync.Printf("updated at: %v", dbMeta.UpdatedAt.Local())
-	return time.Since(dbMeta.UpdatedAt) > idx.options.resyncInterval, nil
-}
-func ignoreErrNoRows(err error) error {
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	return err
-}
-
 func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDir) (retErr error) {
-	needsSync, err := idx.needsSync(ctx)
+	sync, err := idx.db.StartSyncIfNeeded(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to start sync: %w", err)
 	}
-	if !needsSync {
+	if sync == nil {
 		return nil
-	}
-
-	sync, err := schema.NewSync(ctx, idx.db)
-	if err != nil {
-		return err
 	}
 	defer func() {
-		retErr = errors.Join(retErr, sync.Finish(ctx, idx.Metadata))
+		if err := sync.Finish(ctx); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("failed to finish sync: %w", err))
+		}
 	}()
 
 	pb := newProgressBar(idx.options, len(codeRoots)+1, "syncing code roots")
-	defer pb.Finish()
+	defer func() {
+		if err := pb.Finish(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("failed to finish progress bar: %w", err))
+		}
+	}()
 
-	syncNext := make(chan schema.Module, len(codeRoots))
+	syncNext := make(chan modpkgdb.Module, len(codeRoots))
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		defer close(syncNext)
 		for _, codeRoot := range codeRoots {
 			mod := codeRootToModule(codeRoot)
-			needSync, err := sync.AddModule(&mod)
+			needSync, err := sync.AddModule(ctx, &mod)
 			if err != nil {
 				return err
 			}
@@ -118,30 +85,28 @@ func (idx *Index) syncCodeRoots(ctx context.Context, codeRoots []godoc.PackageDi
 
 	return nil
 }
-func codeRootToModule(codeRoot godoc.PackageDir) schema.Module {
-	class, _ := schema.ParseClassVendor(codeRoot)
-	return schema.Module{
-		ImportPath: codeRoot.ImportPath,
-		Dir:        codeRoot.Dir,
-		Class:      class,
+func codeRootToModule(codeRoot godoc.PackageDir) modpkgdb.Module {
+	return modpkgdb.Module{
+		ImportPath:  codeRoot.ImportPath,
+		RelativeDir: codeRoot.Dir,
 	}
 }
 
-func (idx *Index) syncModulePackages(ctx context.Context, sync *schema.Sync, root schema.Module) error {
-	dlogSync.Printf("syncing module packages for %q in %q", root.ImportPath, root.Dir)
-	root.Dir = filepath.Clean(root.Dir) // because filepath.Join will do it anyway
+func (idx *Index) syncModulePackages(ctx context.Context, sync *modpkgdb.Sync, root modpkgdb.Module) error {
+	dlogSync.Printf("syncing module packages for %q in %q", root.ImportPath, root.RelativeDir)
+	root.RelativeDir = filepath.Clean(root.RelativeDir) // because filepath.Join will do it anyway
 
 	// this is the queue of directories to examine in this pass.
-	this := []schema.Module{}
+	this := []modpkgdb.Module{}
 	// next is the queue of directories to examine in the next pass.
-	next := []schema.Module{root}
+	next := []modpkgdb.Module{root}
 
 	for len(next) > 0 && ctx.Err() == nil {
 		dlogSync.Printf("descending")
 		this, next = next, this[0:0]
 		for _, pkg := range this {
 			dlogSync.Printf("walking %q", pkg)
-			fd, err := os.Open(pkg.Dir)
+			fd, err := os.Open(pkg.RelativeDir)
 			if err != nil {
 				log.Print(err)
 				continue
@@ -162,12 +127,11 @@ func (idx *Index) syncModulePackages(ctx context.Context, sync *schema.Sync, roo
 					if !hasGoFiles && strings.HasSuffix(name, ".go") {
 						hasGoFiles = true
 						relativePath := strings.TrimPrefix(pkg.ImportPath[len(root.ImportPath):], "/")
-						sPkg := schema.Package{
+						sPkg := modpkgdb.Package{
 							ModuleID:     root.ID,
 							RelativePath: relativePath,
-							ImportPath:   path.Join(pkg.ImportPath, relativePath),
 						}
-						if err := sync.AddPackage(sPkg); err != nil {
+						if err := sync.AddPackage(ctx, &sPkg); err != nil {
 							return err
 						}
 					}
@@ -183,13 +147,13 @@ func (idx *Index) syncModulePackages(ctx context.Context, sync *schema.Sync, roo
 				if name == "vendor" {
 					continue
 				}
-				if fi, err := os.Stat(filepath.Join(pkg.Dir, name, "go.mod")); err == nil && !fi.IsDir() {
+				if fi, err := os.Stat(filepath.Join(pkg.RelativeDir, name, "go.mod")); err == nil && !fi.IsDir() {
 					continue
 				}
 				// Remember this (fully qualified) directory for the next pass.
-				subPkg := schema.Module{
-					ImportPath: path.Join(pkg.ImportPath, name),
-					Dir:        filepath.Join(pkg.Dir, name),
+				subPkg := modpkgdb.Module{
+					ImportPath:  path.Join(pkg.ImportPath, name),
+					RelativeDir: filepath.Join(pkg.RelativeDir, name),
 				}
 				dlogSync.Printf("queuing %q", subPkg.ImportPath)
 				next = append(next, subPkg)

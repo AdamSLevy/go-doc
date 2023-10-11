@@ -2,7 +2,6 @@ package index
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"path/filepath"
 
@@ -10,15 +9,15 @@ import (
 	_ "modernc.org/sqlite"
 
 	"aslevy.com/go-doc/internal/godoc"
-	"aslevy.com/go-doc/internal/index/schema"
+	"aslevy.com/go-doc/internal/modpkgdb"
 )
 
 type Index struct {
 	options
 
-	db *sql.DB
+	db *modpkgdb.DB
 
-	schema.Metadata
+	modpkgdb.Metadata
 
 	cancel context.CancelFunc
 	g      *errgroup.Group
@@ -30,20 +29,22 @@ func DBPath(mainModPath string) string {
 	return filepath.Join(mainModPath, DefaultRelativeDBPath)
 }
 
-func Load(ctx context.Context, mainModPath string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
+func Load(ctx context.Context, dbPath, goRootDir, goModCacheDir, mainModDir string, codeRoots []godoc.PackageDir, opts ...Option) (*Index, error) {
 	o := newOptions(opts...)
 	if o.mode == ModeOff {
 		return nil, nil
 	}
-	o.mainModPath = mainModPath
+	o.goRootDir = goRootDir
+	o.goModCacheDir = goModCacheDir
+	o.mainModDir = mainModDir
 	if o.dbPath == "" {
-		o.dbPath = DBPath(mainModPath)
+		o.dbPath = DBPath(mainModDir)
 	}
 
 	dlog.Printf("loading database %s", o.dbPath)
 	dlog.Printf("options: %+v", o)
 
-	db, err := schema.OpenDB(ctx, o.dbPath)
+	db, err := modpkgdb.OpenDB(ctx, goRootDir, goModCacheDir, mainModDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open index database: %w", err)
 	}

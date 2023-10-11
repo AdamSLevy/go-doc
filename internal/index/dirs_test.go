@@ -10,7 +10,7 @@ import (
 func TestDirs_partial(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
-	pkgIdx, err := Load(ctx, dbFilePath(t), stdlibCodeRoots(), loadOpts())
+	pkgIdx, err := Load(ctx, dbFilePath(t), "", "", "", stdlibCodeRoots(), loadOpts())
 	require.NoError(err)
 	t.Cleanup(func() { require.NoError(pkgIdx.Close()) })
 
@@ -36,7 +36,7 @@ func TestDirs_partial(t *testing.T) {
 func TestDirs_exact(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
-	pkgIdx, err := Load(ctx, dbFilePath(t), stdlibCodeRoots(), loadOpts())
+	pkgIdx, err := Load(ctx, dbFilePath(t), "", "", "", stdlibCodeRoots(), loadOpts())
 	require.NoError(err)
 	t.Cleanup(func() { require.NoError(pkgIdx.Close()) })
 
