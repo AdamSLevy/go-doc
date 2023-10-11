@@ -12,22 +12,13 @@ var (
 )
 
 const (
-	// Escape character
-	ESC = '\x1b'
-	// Bell
-	BEL = '\a'
 	// Control Sequence Introducer
-	CSI = string(ESC) + "["
+	CSI = "\x1b["
 	// Operating System Command
-	OSC = string(ESC) + "]"
-	// String Terminator
-	ST = string(ESC) + `\`
+	OSC = "\x1b]"
 )
 
 func (o *Output) isTTY() bool {
-	if o.assumeTTY || o.unsafe {
-		return true
-	}
 	if len(o.environ.Getenv("CI")) > 0 {
 		return false
 	}
@@ -88,13 +79,11 @@ func EnvColorProfile() Profile {
 	return output.EnvColorProfile()
 }
 
-// EnvColorProfile returns the color profile based on environment variables set
-// Supports NO_COLOR (https://no-color.org/)
-// and CLICOLOR/CLICOLOR_FORCE (https://bixense.com/clicolors/)
-// If none of these environment variables are set, this behaves the same as ColorProfile()
-// It will return the Ascii color profile if EnvNoColor() returns true
-// If the terminal does not support any colors, but CLICOLOR_FORCE is set and not "0"
-// then the ANSI color profile will be returned.
+// EnvNoColor returns true if the environment variables explicitly disable color output
+// by setting NO_COLOR (https://no-color.org/)
+// or CLICOLOR/CLICOLOR_FORCE (https://bixense.com/clicolors/)
+// If NO_COLOR is set, this will return true, ignoring CLICOLOR/CLICOLOR_FORCE
+// If CLICOLOR=="0", it will be true only if CLICOLOR_FORCE is also "0" or is unset.
 func (o *Output) EnvColorProfile() Profile {
 	if o.EnvNoColor() {
 		return Ascii

@@ -25,10 +25,6 @@ func (o *Output) ColorProfile() Profile {
 		return Ascii
 	}
 
-	if o.environ.Getenv("GOOGLE_CLOUD_SHELL") == "true" {
-		return TrueColor
-	}
-
 	term := o.environ.Getenv("TERM")
 	colorTerm := o.environ.Getenv("COLORTERM")
 
@@ -50,7 +46,7 @@ func (o *Output) ColorProfile() Profile {
 	}
 
 	switch term {
-	case "xterm-kitty", "wezterm":
+	case "xterm-kitty":
 		return TrueColor
 	case "linux":
 		return ANSI
@@ -113,8 +109,7 @@ func (o Output) backgroundColor() Color {
 	return ANSIColor(0)
 }
 
-func (o *Output) waitForData(timeout time.Duration) error {
-	fd := o.TTY().Fd()
+func waitForData(fd uintptr, timeout time.Duration) error {
 	tv := unix.NsecToTimeval(int64(timeout))
 	var readfds unix.FdSet
 	readfds.Set(int(fd))
@@ -137,15 +132,13 @@ func (o *Output) waitForData(timeout time.Duration) error {
 	return nil
 }
 
-func (o *Output) readNextByte() (byte, error) {
-	if !o.unsafe {
-		if err := o.waitForData(OSCTimeout); err != nil {
-			return 0, err
-		}
+func readNextByte(f File) (byte, error) {
+	if err := waitForData(f.Fd(), OSCTimeout); err != nil {
+		return 0, err
 	}
 
 	var b [1]byte
-	n, err := o.TTY().Read(b[:])
+	n, err := f.Read(b[:])
 	if err != nil {
 		return 0, err
 	}
@@ -160,15 +153,15 @@ func (o *Output) readNextByte() (byte, error) {
 // readNextResponse reads either an OSC response or a cursor position response:
 //   - OSC response: "\x1b]11;rgb:1111/1111/1111\x1b\\"
 //   - cursor position response: "\x1b[42;1R"
-func (o *Output) readNextResponse() (response string, isOSC bool, err error) {
-	start, err := o.readNextByte()
+func readNextResponse(fd File) (response string, isOSC bool, err error) {
+	start, err := readNextByte(fd)
 	if err != nil {
 		return "", false, err
 	}
 
 	// first byte must be ESC
-	for start != ESC {
-		start, err = o.readNextByte()
+	for start != '\033' {
+		start, err = readNextByte(fd)
 		if err != nil {
 			return "", false, err
 		}
@@ -177,7 +170,7 @@ func (o *Output) readNextResponse() (response string, isOSC bool, err error) {
 	response += string(start)
 
 	// next byte is either '[' (cursor position response) or ']' (OSC response)
-	tpe, err := o.readNextByte()
+	tpe, err := readNextByte(fd)
 	if err != nil {
 		return "", false, err
 	}
@@ -195,7 +188,7 @@ func (o *Output) readNextResponse() (response string, isOSC bool, err error) {
 	}
 
 	for {
-		b, err := o.readNextByte()
+		b, err := readNextByte(fd)
 		if err != nil {
 			return "", false, err
 		}
@@ -204,7 +197,7 @@ func (o *Output) readNextResponse() (response string, isOSC bool, err error) {
 
 		if oscResponse {
 			// OSC can be terminated by BEL (\a) or ST (ESC)
-			if b == BEL || strings.HasSuffix(response, string(ESC)) {
+			if b == '\a' || strings.HasSuffix(response, "\033") {
 				return response, true, nil
 			}
 		} else {
@@ -236,35 +229,33 @@ func (o Output) termStatusReport(sequence int) (string, error) {
 		return "", ErrStatusReport
 	}
 
-	if !o.unsafe {
-		fd := int(tty.Fd())
-		// if in background, we can't control the terminal
-		if !isForeground(fd) {
-			return "", ErrStatusReport
-		}
+	fd := int(tty.Fd())
+	// if in background, we can't control the terminal
+	if !isForeground(fd) {
+		return "", ErrStatusReport
+	}
 
-		t, err := unix.IoctlGetTermios(fd, tcgetattr)
-		if err != nil {
-			return "", fmt.Errorf("%s: %s", ErrStatusReport, err)
-		}
-		defer unix.IoctlSetTermios(fd, tcsetattr, t) //nolint:errcheck
+	t, err := unix.IoctlGetTermios(fd, tcgetattr)
+	if err != nil {
+		return "", fmt.Errorf("%s: %s", ErrStatusReport, err)
+	}
+	defer unix.IoctlSetTermios(fd, tcsetattr, t) //nolint:errcheck
 
-		noecho := *t
-		noecho.Lflag = noecho.Lflag &^ unix.ECHO
-		noecho.Lflag = noecho.Lflag &^ unix.ICANON
-		if err := unix.IoctlSetTermios(fd, tcsetattr, &noecho); err != nil {
-			return "", fmt.Errorf("%s: %s", ErrStatusReport, err)
-		}
+	noecho := *t
+	noecho.Lflag = noecho.Lflag &^ unix.ECHO
+	noecho.Lflag = noecho.Lflag &^ unix.ICANON
+	if err := unix.IoctlSetTermios(fd, tcsetattr, &noecho); err != nil {
+		return "", fmt.Errorf("%s: %s", ErrStatusReport, err)
 	}
 
 	// first, send OSC query, which is ignored by terminal which do not support it
-	fmt.Fprintf(tty, OSC+"%d;?"+ST, sequence)
+	fmt.Fprintf(tty, "\033]%d;?\033\\", sequence)
 
 	// then, query cursor position, should be supported by all terminals
-	fmt.Fprintf(tty, CSI+"6n")
+	fmt.Fprintf(tty, "\033[6n")
 
 	// read the next response
-	res, isOSC, err := o.readNextResponse()
+	res, isOSC, err := readNextResponse(tty)
 	if err != nil {
 		return "", fmt.Errorf("%s: %s", ErrStatusReport, err)
 	}
@@ -275,7 +266,7 @@ func (o Output) termStatusReport(sequence int) (string, error) {
 	}
 
 	// read the cursor query response next and discard the result
-	_, _, err = o.readNextResponse()
+	_, _, err = readNextResponse(tty)
 	if err != nil {
 		return "", err
 	}
@@ -288,6 +279,6 @@ func (o Output) termStatusReport(sequence int) (string, error) {
 // Windows for w and returns a function that restores w to its previous state.
 // On non-Windows platforms, or if w does not refer to a terminal, then it
 // returns a non-nil no-op function and no error.
-func EnableVirtualTerminalProcessing(_ io.Writer) (func() error, error) {
+func EnableVirtualTerminalProcessing(w io.Writer) (func() error, error) {
 	return func() error { return nil }, nil
 }
