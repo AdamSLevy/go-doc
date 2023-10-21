@@ -1,4 +1,4 @@
-package modpkgdb
+package db
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 type Sync struct {
 	tx   Tx
-	meta Metadata
+	Meta Metadata
 	stmt struct {
 		upsertMod *sql.Stmt
 		upsertPkg *sql.Stmt
@@ -48,7 +48,7 @@ func (db *DB) StartSyncIfNeeded(ctx context.Context) (_ *Sync, rerr error) {
 
 	s := Sync{
 		tx:   tx,
-		meta: meta,
+		Meta: meta,
 	}
 
 	if err := s.setAllModuleSyncKeepFalse(ctx); err != nil {
@@ -116,7 +116,7 @@ func (s *Sync) Finish(ctx context.Context) (rerr error) {
 }
 func (s *Sync) finish(ctx context.Context) (rerr error) {
 	defer s.tx.RollbackOrCommit(&rerr)
-	if err := s.upsertMetadata(ctx, &s.meta); err != nil {
+	if err := s.upsertMetadata(ctx, &s.Meta); err != nil {
 		return err
 	}
 	return nil

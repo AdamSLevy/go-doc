@@ -1,7 +1,7 @@
 //go:build disable
 // +build disable
 
-package modpkgdb
+package db
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package modpkgdb
+package db
 
 import (
 	"bufio"
