@@ -92,6 +92,9 @@ func usingVendor(mainModDir string) (bool, error) {
 }
 
 func (db *DB) SelectMetadata(ctx context.Context) (Metadata, error) {
+	return selectMetadata(ctx, db.db)
+}
+func selectMetadata(ctx context.Context, db Querier) (Metadata, error) {
 	const query = `
 SELECT 
   created_at, 
@@ -109,7 +112,7 @@ WHERE
   rowid = 1
 LIMIT 1;
 `
-	return scanMetadata(db.db.QueryRowContext(ctx, query))
+	return scanMetadata(db.QueryRowContext(ctx, query))
 }
 func scanMetadata(row Scanner) (meta Metadata, _ error) {
 	return meta, row.Scan(

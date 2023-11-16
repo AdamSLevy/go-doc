@@ -86,7 +86,7 @@ func (db *DB) initialize(ctx context.Context) (rerr error) {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.RollbackOrCommit(&rerr)
+	defer tx.RollbackOnError(&rerr)
 
 	if !ready {
 		if err := applySchema(ctx, tx); err != nil {
@@ -98,17 +98,13 @@ func (db *DB) initialize(ctx context.Context) (rerr error) {
 		return err
 	}
 
-	if !ready {
-		// New database so no need to select the metadata.
-		return nil
+	if ready {
+		if db.meta, err = selectMetadata(ctx, tx); err != nil {
+			return err
+		}
 	}
 
-	db.meta, err = db.SelectMetadata(ctx)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return tx.Commit()
 }
 
 func (db *DB) checkSchema(ctx context.Context) (ready bool, _ error) {

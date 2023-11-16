@@ -9,12 +9,14 @@ import (
 )
 
 type Sync struct {
-	tx   Tx
+	tx   *sqlTx
 	Meta Metadata
-	stmt struct {
-		upsertMod *sql.Stmt
-		upsertPkg *sql.Stmt
-	}
+	stmt syncStmts
+}
+
+type syncStmts struct {
+	upsertMod *sql.Stmt
+	upsertPkg *sql.Stmt
 }
 
 func (db *DB) StartSyncIfNeeded(ctx context.Context) (_ *Sync, rerr error) {
@@ -115,9 +117,9 @@ func (s *Sync) Finish(ctx context.Context) (rerr error) {
 	return nil
 }
 func (s *Sync) finish(ctx context.Context) (rerr error) {
-	defer s.tx.RollbackOrCommit(&rerr)
+	defer s.tx.RollbackOnError(&rerr)
 	if err := s.upsertMetadata(ctx, &s.Meta); err != nil {
 		return err
 	}
-	return nil
+	return s.tx.Commit()
 }
