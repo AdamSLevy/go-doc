@@ -59,10 +59,13 @@ SELECT
   dir,
   class
 FROM
-  `
+  `[1:] // remove leading newline
 	query += from
 	if where != "" {
-		query += " WHERE " + where
+		query += `
+WHERE
+  `
+		query += where
 	}
 	query += ";"
 

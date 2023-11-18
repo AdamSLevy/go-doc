@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -76,32 +77,11 @@ type parentDir struct {
 	Dir string
 }
 
-const upsertParentDirQuery = `
-INSERT INTO
-  parent_dir (
-    rowid,
-    key,
-    dir
-  )
-VALUES (
-    ?, ?, ?
-)
-ON CONFLICT
-DO UPDATE SET
-  (
-    rowid, 
-    key, 
-    dir
-  ) = (
-    excluded.rowid,
-    excluded.key,
-    excluded.dir
-  )
-;
-`
+//go:embed sql/parent_dir_upsert.sql
+var queryUpsertParentDir string
 
 func upsertParentDirs(ctx context.Context, db sql.Querier, dirs *ParentDirs) (rerr error) {
-	stmt, err := db.PrepareContext(ctx, upsertParentDirQuery)
+	stmt, err := db.PrepareContext(ctx, queryUpsertParentDir)
 	if err != nil {
 		return fmt.Errorf("failed to prepare upsert parent dir statement: %w", err)
 	}
