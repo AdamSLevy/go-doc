@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+
+	"aslevy.com/go-doc/internal/sql"
 )
 
 type ParentDirs struct {
@@ -98,7 +100,7 @@ DO UPDATE SET
 ;
 `
 
-func upsertParentDirs(ctx context.Context, db Querier, dirs *ParentDirs) (rerr error) {
+func upsertParentDirs(ctx context.Context, db sql.Querier, dirs *ParentDirs) (rerr error) {
 	stmt, err := db.PrepareContext(ctx, upsertParentDirQuery)
 	if err != nil {
 		return fmt.Errorf("failed to prepare upsert parent dir statement: %w", err)

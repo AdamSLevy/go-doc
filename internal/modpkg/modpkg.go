@@ -24,9 +24,7 @@ func New(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string, coderoots []godo
 
 	modPkg := ModPkg{db: db}
 	modPkg.g, ctx = errgroup.WithContext(ctx)
-	modPkg.g.Go(func() error {
-		return modPkg.sync(ctx, coderoots)
-	})
+	modPkg.g.Go(func() error { return modPkg.sync(ctx, coderoots) })
 
 	return &modPkg, nil
 }

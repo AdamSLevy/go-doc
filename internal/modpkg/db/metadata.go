@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"time"
+
+	"aslevy.com/go-doc/internal/sql"
 )
 
 type Metadata struct {
@@ -91,31 +94,17 @@ func usingVendor(mainModDir string) (bool, error) {
 	return true, nil
 }
 
-func (db *DB) SelectMetadata(ctx context.Context) (Metadata, error) {
+func (db *DB) SelectMetadata(ctx context.Context) (*Metadata, error) {
 	return selectMetadata(ctx, db.db)
 }
-func selectMetadata(ctx context.Context, db Querier) (Metadata, error) {
-	const query = `
-SELECT 
-  created_at, 
-  updated_at, 
 
-  build_revision, 
-  go_version,
+//go:embed sql/metadata_select.sql
+var querySelectMetadata string
 
-  go_mod_hash,
-  go_sum_hash,
-  vendor
-FROM 
-  metadata 
-WHERE
-  rowid = 1
-LIMIT 1;
-`
-	return scanMetadata(db.QueryRowContext(ctx, query))
-}
-func scanMetadata(row Scanner) (meta Metadata, _ error) {
-	return meta, row.Scan(
+func selectMetadata(ctx context.Context, db sql.Querier) (*Metadata, error) {
+	var meta Metadata
+	row := db.QueryRowContext(ctx, querySelectMetadata)
+	return &meta, row.Scan(
 		&meta.CreatedAt,
 		&meta.UpdatedAt,
 
@@ -128,44 +117,11 @@ func scanMetadata(row Scanner) (meta Metadata, _ error) {
 	)
 }
 
+//go:embed sql/metadata_upsert.sql
+var queryUpsertMetadata string
+
 func (s *Sync) upsertMetadata(ctx context.Context, meta *Metadata) error {
-	const query = `
-INSERT INTO 
-  metadata(
-    rowid, 
-
-    build_revision, 
-    go_version,
-
-    go_mod_hash,
-    go_sum_hash,
-    vendor
-  ) 
-VALUES (
-  1, 
-  ?, ?, ?, ?,
-  ?, ?, ?, ?
-)
-ON CONFLICT(rowid) DO 
-  UPDATE SET 
-    updated_at = CURRENT_TIMESTAMP, 
-    (
-      build_revision,
-      go_version,
- 
-      go_mod_hash,
-      go_sum_hash,
-      vendor
-    ) = (
-      excluded.build_revision,
-      excluded.go_version,
-
-      excluded.go_mod_hash,
-      excluded.go_sum_hash,
-      excluded.vendor
-    );
-`
-	_, err := s.tx.ExecContext(ctx, query,
+	_, err := s.tx.ExecContext(ctx, queryUpsertMetadata,
 		meta.BuildRevision,
 		meta.GoVersion,
 

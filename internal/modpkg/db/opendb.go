@@ -2,18 +2,19 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"aslevy.com/go-doc/internal/sql"
 )
 
 type DB struct {
 	db *sql.DB
 
-	meta Metadata
+	meta *Metadata
 	dirs ParentDirs
 }
 
@@ -28,9 +29,8 @@ func OpenDB(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string) (_ *DB, rerr 
 		return nil, err
 	}
 
-	var db DB
-	db.db, rerr = sql.Open("sqlite", dbPath)
-	if rerr != nil {
+	sqldb, err := sql.Open("sqlite", dbPath)
+	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", rerr)
 	}
 	// We need to close the database if we fail to initialize it.
@@ -39,12 +39,16 @@ func OpenDB(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string) (_ *DB, rerr 
 			// Success, so leave the database open.
 			return
 		}
-		if err := db.Close(); err != nil {
+		if err := sqldb.Close(); err != nil {
 			rerr = errors.Join(rerr, fmt.Errorf("failed to close database: %w", err))
 		}
 	}()
 
-	db.dirs = NewParentDirs(GOROOT, GOMODCACHE, mainModDir)
+	db := DB{
+		db:   sqldb,
+		dirs: NewParentDirs(GOROOT, GOMODCACHE, mainModDir),
+	}
+
 	if err := db.initialize(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
@@ -82,7 +86,7 @@ func (db *DB) initialize(ctx context.Context) (rerr error) {
 		}
 	}
 
-	tx, err := db.beginTx(ctx)
+	tx, err := db.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}

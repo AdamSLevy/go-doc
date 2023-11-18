@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"fmt"
+
+	"aslevy.com/go-doc/internal/sql"
 )
 
 // sqliteApplicationID is the magic number used to identify sqlite3 databases
@@ -19,7 +21,7 @@ const (
 	pragmaJournalMode       = "journal_mode"
 )
 
-func assertApplicationID(ctx context.Context, db Querier) error {
+func assertApplicationID(ctx context.Context, db sql.Querier) error {
 	appID, err := getApplicationID(ctx, db)
 	if err != nil {
 		return err
@@ -32,23 +34,23 @@ func assertApplicationID(ctx context.Context, db Querier) error {
 	}
 	return nil
 }
-func getApplicationID(ctx context.Context, db Querier) (appID int32, err error) {
+func getApplicationID(ctx context.Context, db sql.Querier) (appID int32, err error) {
 	err = getPragma(ctx, db, pragmaApplicationID, &appID)
 	return
 }
-func setApplicationID(ctx context.Context, db Querier) error {
+func setApplicationID(ctx context.Context, db sql.Querier) error {
 	return setPragma(ctx, db, pragmaApplicationID, sqliteApplicationID)
 }
 
-func getUserVersion(ctx context.Context, db Querier) (userVersion int32, err error) {
+func getUserVersion(ctx context.Context, db sql.Querier) (userVersion int32, err error) {
 	err = getPragma(ctx, db, pragmaUserVersion, &userVersion)
 	return
 }
-func setUserVersion(ctx context.Context, db Querier, userVersion int32) error {
+func setUserVersion(ctx context.Context, db sql.Querier, userVersion int32) error {
 	return setPragma(ctx, db, pragmaUserVersion, userVersion)
 }
 
-func getSchemaVersion(ctx context.Context, db Querier) (schemaVersion int32, err error) {
+func getSchemaVersion(ctx context.Context, db sql.Querier) (schemaVersion int32, err error) {
 	err = getPragma(ctx, db, pragmaSchemaVersion, &schemaVersion)
 	return
 }
@@ -65,11 +67,11 @@ func (db *DB) journalModeWAL(ctx context.Context) error {
 	return setPragma(ctx, db.db, pragmaJournalMode, "wal")
 }
 
-func getPragma(ctx context.Context, db Querier, key string, val any) error {
+func getPragma(ctx context.Context, db sql.Querier, key string, val any) error {
 	query := fmt.Sprintf(`PRAGMA %s;`, key)
 	row := db.QueryRowContext(ctx, query)
 	if err := row.Err(); err != nil {
-		return fmt.Errorf("failed to query %s: %w", query, err)
+		return err
 	}
 	if err := row.Scan(val); err != nil {
 		return fmt.Errorf("failed to scan %s: %w", query, err)
@@ -77,7 +79,7 @@ func getPragma(ctx context.Context, db Querier, key string, val any) error {
 	return nil
 }
 
-func setPragma(ctx context.Context, db Querier, key string, val any) error {
+func setPragma(ctx context.Context, db sql.Querier, key string, val any) error {
 	query := fmt.Sprintf(`PRAGMA %s=%v;`, key, val)
 	_, err := db.ExecContext(ctx, query)
 	if err != nil {

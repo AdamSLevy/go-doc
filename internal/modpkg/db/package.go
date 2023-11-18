@@ -2,10 +2,11 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	_ "embed"
 	"errors"
 	"fmt"
+
+	"aslevy.com/go-doc/internal/sql"
 )
 
 type Package struct {
@@ -20,7 +21,7 @@ func (s *Sync) prepareStmtUpsertPackage(ctx context.Context) (err error) {
 	return
 }
 
-func prepareStmtUpsertPackage(ctx context.Context, db Querier) (*sql.Stmt, error) {
+func prepareStmtUpsertPackage(ctx context.Context, db sql.Querier) (*sql.Stmt, error) {
 	stmt, err := db.PrepareContext(ctx, upsertPackageQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare upsert package statement: %w", err)
@@ -28,7 +29,7 @@ func prepareStmtUpsertPackage(ctx context.Context, db Querier) (*sql.Stmt, error
 	return stmt, nil
 }
 
-//go:embed package_upsert.sql
+//go:embed sql/package_upsert.sql
 var upsertPackageQuery string
 
 func (s *Sync) upsertPackage(ctx context.Context, pkg *Package) error {
@@ -42,13 +43,13 @@ func (s *Sync) upsertPackage(ctx context.Context, pkg *Package) error {
 	return nil
 }
 
-func SelectAllPackages(ctx context.Context, db Querier) ([]Package, error) {
+func SelectAllPackages(ctx context.Context, db sql.Querier) ([]Package, error) {
 	return selectPackagesFromWhere(ctx, db, "package", "")
 }
-func SelectModulePackages(ctx context.Context, db Querier, modId int64) ([]Package, error) {
+func SelectModulePackages(ctx context.Context, db sql.Querier, modId int64) ([]Package, error) {
 	return selectPackagesFromWhere(ctx, db, "package", "module_id = ? ORDER BY rowid", modId)
 }
-func selectPackagesFromWhere(ctx context.Context, db Querier, from, where string, args ...interface{}) (_ []Package, rerr error) {
+func selectPackagesFromWhere(ctx context.Context, db sql.Querier, from, where string, args ...interface{}) (_ []Package, rerr error) {
 	query := `
 SELECT 
   rowid, 
@@ -92,7 +93,7 @@ func scanPackages(ctx context.Context, rows *sql.Rows) (pkgs []Package, _ error)
 	return pkgs, nil
 }
 
-func scanPackage(row Scanner) (pkg Package, _ error) {
+func scanPackage(row sql.RowScanner) (pkg Package, _ error) {
 	if err := row.Scan(&pkg.ID, &pkg.ModuleID, &pkg.RelativePath, &pkg.NumParts); err != nil {
 		return pkg, fmt.Errorf("failed to scan package: %w", err)
 	}

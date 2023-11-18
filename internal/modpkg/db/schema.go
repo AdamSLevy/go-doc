@@ -9,11 +9,12 @@ import (
 	"fmt"
 	"hash/crc32"
 
+	"aslevy.com/go-doc/internal/sql"
 	_ "modernc.org/sqlite"
 )
 
 // applySchema execs all schemaQueries against the db.
-func applySchema(ctx context.Context, db Querier) error {
+func applySchema(ctx context.Context, db sql.Querier) error {
 	if err := execQueries(ctx, db, schemaQueries...); err != nil {
 		return err
 	}
@@ -38,7 +39,7 @@ var schemaChecksum int32 = func() int32 {
 
 // rawSchema is the SQL rawSchema for the index database.
 //
-//go:embed schema.sql
+//go:embed sql/schema.sql
 var rawSchema []byte
 
 var schemaQueries = func() []string {
@@ -49,7 +50,7 @@ var schemaQueries = func() []string {
 	return queries
 }()
 
-func execQueries(ctx context.Context, db Querier, queries ...string) error {
+func execQueries(ctx context.Context, db sql.Querier, queries ...string) error {
 	for _, query := range queries {
 		_, err := db.ExecContext(ctx, query)
 		if err != nil {

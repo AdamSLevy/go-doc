@@ -2,10 +2,11 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	_ "embed"
 	"errors"
 	"fmt"
+
+	"aslevy.com/go-doc/internal/sql"
 )
 
 type Module struct {
@@ -15,37 +16,31 @@ type Module struct {
 	ParentDirID int64
 }
 
-func (s *Sync) prepareStmtUpsertModule(ctx context.Context) (err error) {
-	s.stmt.upsertMod, err = prepareStmtUpsertModule(ctx, s.tx)
-	return
-}
-func prepareStmtUpsertModule(ctx context.Context, db Querier) (*sql.Stmt, error) {
-	stmt, err := db.PrepareContext(ctx, upsertModuleQuery)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare statement: %w\n%s", err, upsertModuleQuery)
-	}
-	return stmt, nil
-}
+//go:embed sql/module_upsert.sql
+var queryUpsertModule string
 
-//go:embed module_upsert.sql
-var upsertModuleQuery string
+func prepareUpsertModule(ctx context.Context, db sql.Querier) (*sql.Stmt, error) {
+	return db.PrepareContext(ctx, queryUpsertModule)
+}
 
 func (s *Sync) upsertModule(ctx context.Context, mod *Module) (needSync bool, _ error) {
-	row := s.stmt.upsertMod.QueryRowContext(ctx, mod.ImportPath, mod.RelativeDir, mod.ParentDirID)
-	if err := row.Err(); err != nil {
-		return false, fmt.Errorf("failed to upsert module: %w", err)
-	}
-	if err := row.Scan(&mod.ID, &needSync); err != nil {
-		return false, fmt.Errorf("failed to scan upserted module: %w", err)
-	}
-	return needSync, nil
+	row := s.stmt.upsertModule.QueryRowContext(
+		ctx,
+		mod.ImportPath,
+		mod.RelativeDir,
+		mod.ParentDirID,
+	)
+	return needSync, row.Scan(
+		&mod.ID,
+		&needSync,
+	)
 }
 
-func SelectAllModules(ctx context.Context, db Querier) (_ []Module, rerr error) {
+func SelectAllModules(ctx context.Context, db sql.Querier) (_ []Module, rerr error) {
 	return selectModulesFromWhere(ctx, db, "module", "")
 }
-func selectModulesFromWhere(ctx context.Context, db Querier, from, where string, args ...any) (_ []Module, rerr error) {
-	stmt, err := selectModulesFromWhereStmt(ctx, db, from, where)
+func selectModulesFromWhere(ctx context.Context, db sql.Querier, from, where string, args ...any) (_ []Module, rerr error) {
+	stmt, err := prepareSelectModulesFromWhere(ctx, db, from, where)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +51,7 @@ func selectModulesFromWhere(ctx context.Context, db Querier, from, where string,
 	}()
 	return selectModules(ctx, stmt, args...)
 }
-func selectModulesFromWhereStmt(ctx context.Context, db Querier, from, where string) (*sql.Stmt, error) {
+func prepareSelectModulesFromWhere(ctx context.Context, db sql.Querier, from, where string) (*sql.Stmt, error) {
 	query := `
 SELECT
   rowid,
@@ -89,7 +84,6 @@ func selectModules(ctx context.Context, stmt *sql.Stmt, args ...interface{}) (_ 
 	}()
 	return scanModules(ctx, rows)
 }
-
 func scanModules(ctx context.Context, rows *sql.Rows) (mods []Module, _ error) {
 	for rows.Next() {
 		mod, err := scanModule(rows)
@@ -103,49 +97,24 @@ func scanModules(ctx context.Context, rows *sql.Rows) (mods []Module, _ error) {
 	}
 	return mods, nil
 }
-
-type errNullValue string
-
-func (e errNullValue) Error() string { return fmt.Sprintf("%s is NULL", string(e)) }
-
-func scanModule(row Scanner) (mod Module, _ error) {
+func scanModule(row sql.RowScanner) (mod Module, _ error) {
 	if err := row.Scan(&mod.ID, &mod.ImportPath, &mod.RelativeDir, &mod.ParentDirID); err != nil {
 		return mod, fmt.Errorf("failed to scan module: %w", err)
 	}
 	return mod, nil
 }
 
-func (s *Sync) selectModulesPrune(ctx context.Context) ([]Module, error) {
+func (s *Sync) selectModulesToPrune(ctx context.Context) ([]Module, error) {
 	return selectModulesFromWhere(ctx, s.tx, "module", "keep=FALSE ORDER BY rowid")
 }
-func (s *Sync) selectModulesNeedSync(ctx context.Context) ([]Module, error) {
+func (s *Sync) selectModulesThatNeedSync(ctx context.Context) ([]Module, error) {
 	return selectModulesFromWhere(ctx, s.tx, "module", "sync=TRUE ORDER BY rowid")
 }
 
-func updateModuleParentDir(ctx context.Context, db Querier, vendor bool) error {
-	const query = `
-UPDATE
-  module
-SET
-  parent_dir_id = (
-    iif(
-      $1,
-      $2,
-      $3
-    )
-  )
-WHERE
-  parent_dir_id = (
-    iif(
-      NOT $1,
-      $2,
-      $3
-    )
-  )
-;
-`
-	if _, err := db.ExecContext(ctx, query, vendor, ParentDirIdVendor, ParentDirIdGOMODCACHE); err != nil {
-		return fmt.Errorf("failed to update module parent dir: %w", err)
-	}
-	return nil
+//go:embed sql/module_update_parent_dir.sql
+var queryUpdateModuleParentDir string
+
+func updateModuleParentDir(ctx context.Context, db sql.Querier, vendor bool) error {
+	_, err := db.ExecContext(ctx, queryUpdateModuleParentDir, vendor, ParentDirIdVendor, ParentDirIdGOMODCACHE)
+	return err
 }
