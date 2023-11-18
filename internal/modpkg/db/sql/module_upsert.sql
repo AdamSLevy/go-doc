@@ -6,9 +6,14 @@ INSERT INTO
     relative_dir,
     parent_dir_id,
   )
-VALUES (
-  ?, ?, ?
-)
+  SELECT
+    $import_path as import_path,
+    substr($dir, length(parent_dir.dir) + 1) as relative_dir,
+    parent_dir.rowid as parent_dir_id
+  FROM
+    parent_dir
+  WHERE
+    instr($dir, parent_dir.dir) == 1
 ON CONFLICT (
   import_path
 )

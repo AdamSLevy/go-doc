@@ -27,7 +27,9 @@ type PartClosure struct {
 var querySelectPackageParts string
 
 func SelectPackageParts(ctx context.Context, db sql.Querier, packageID int64, parts []Part) ([]Part, error) {
-	rows, err := db.QueryContext(ctx, querySelectPackageParts, packageID)
+	rows, err := db.QueryContext(ctx, querySelectPackageParts,
+		sql.Named("package_id", packageID),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query parts for packageID: %w", err)
 	}
@@ -56,7 +58,9 @@ type ModulePackage struct {
 var querySelectPackagesByParts string
 
 func SelectPackagesByParts(ctx context.Context, db sql.Querier, parts []string, pkgs []ModulePackage) ([]ModulePackage, error) {
-	rows, err := db.QueryContext(ctx, querySelectPackagesByParts, path.Join(parts...))
+	rows, err := db.QueryContext(ctx, querySelectPackagesByParts,
+		sql.Named("seach_path", path.Join(parts...)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query packages by parts: %w", err)
 	}

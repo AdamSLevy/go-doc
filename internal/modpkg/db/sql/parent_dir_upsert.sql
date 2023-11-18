@@ -5,7 +5,7 @@ INSERT INTO
     dir
   )
 VALUES (
-    ?, ?, ?
+    $rowid, $key, $dir
 )
 ON CONFLICT
 DO UPDATE SET

@@ -24,6 +24,21 @@ func NewParentDirs(GOROOT, GOMODCACHE, mainModuleDir string) ParentDirs {
 	}
 }
 
+func (pd *ParentDirs) RelativePath(dir string) (string, int64, error) {
+	for _, parentDir := range pd.rows() {
+		rel, err := filepath.Rel(parentDir.Dir, dir)
+		if err != nil {
+			return "", -1, fmt.Errorf("failed to get relative path from %q to %q: %w", parentDir.Dir, dir, err)
+		}
+		// If dir is within parent dir, the relative path should be
+		// shorter than the full dir path.
+		if len(rel) < len(dir) {
+			return rel, parentDir.ID, nil
+		}
+	}
+	return "", -1, fmt.Errorf("no parent dir found for %q", dir)
+}
+
 const (
 	ParentDirKeyGOROOT     = "GOROOT"
 	ParentDirKeyGOMODCACHE = "GOMODCACHE"
@@ -92,7 +107,12 @@ func upsertParentDirs(ctx context.Context, db sql.Querier, dirs *ParentDirs) (re
 	}()
 
 	for _, dir := range dirs.rows() {
-		if _, err := stmt.ExecContext(ctx, dir.ID, dir.Key, dir.Dir); err != nil {
+		_, err := stmt.ExecContext(ctx,
+			sql.Named("rowid", dir.ID),
+			sql.Named("key", dir.Key),
+			sql.Named("dir", dir.Dir),
+		)
+		if err != nil {
 			return fmt.Errorf("failed to upsert parent dir %v=%q: %w", dir.Key, dir.Dir, err)
 		}
 	}

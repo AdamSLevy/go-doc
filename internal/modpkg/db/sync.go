@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/sql"
 )
 
@@ -74,17 +75,23 @@ func setAllModuleSyncKeepFalse(ctx context.Context, db sql.Querier) error {
 	return err
 }
 
-func (s *Sync) AddModule(ctx context.Context, mod *Module) (needSync bool, rerr error) {
+func (s *Sync) AddModule(ctx context.Context, modDir godoc.PackageDir) (_ *Module, rerr error) {
 	defer s.tx.RollbackOnError(&rerr)
-	needSync, rerr = s.upsertModule(ctx, mod)
-	// if the module requires syncing
-	if rerr == nil && needSync &&
-		// and we haven't yet prepared the upsert package statement.
-		s.stmt.upsertPkg == nil {
-		// then prepare the upsert package statement.
-		rerr = s.prepareStmtUpsertPackage(ctx)
+	mod := Module{PackageDir: modDir}
+	needSync, err := s.upsertModule(ctx, &mod)
+	if err != nil {
+		return nil, err
 	}
-	return
+	if !needSync {
+		return nil, nil
+	}
+	if s.stmt.upsertPkg == nil {
+		if err := s.prepareStmtUpsertPackage(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	return &mod, nil
 }
 
 func (s *Sync) AddPackage(ctx context.Context, pkg *Package) (rerr error) {

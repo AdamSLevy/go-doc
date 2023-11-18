@@ -43,6 +43,15 @@ CREATE TABLE metadata (
   vendor      BOOL NOT NULL DEFAULT FALSE
 ) WITHOUT ROWID;---
 
+-- parent_dir stores common parent directories of modules such as GOROOT,
+-- GOMODCACHE, the main module, and the main module's vendor directory.
+--
+-- This allows for updating the module's real path when the parent directory is
+-- changed, such as when updating to a new version of Go, changing the GOPATH,
+-- moving the module's directory, or vendoring or unvendoring the module.
+--
+-- - key is a human readable name for the parent directory.
+-- - dir is the directory's path.
 CREATE TABLE parent_dir (
   rowid INTEGER PRIMARY KEY,
 
@@ -122,8 +131,6 @@ FROM
 ON 
   module.parent_dir_id = parent_dir.rowid
 ;---
-
-CREATE INDEX module_parent_dir_id ON module(parent_dir_id);---
 
 -- package stores all packages for all modules.
 --

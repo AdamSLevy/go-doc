@@ -12,7 +12,7 @@ WHERE
     FROM 
       part_package
     WHERE 
-      package_id = ?
+      package_id = $package_id
   ) 
 ORDER BY 
   path_depth ASC;

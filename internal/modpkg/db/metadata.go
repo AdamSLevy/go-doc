@@ -107,10 +107,8 @@ func selectMetadata(ctx context.Context, db sql.Querier) (*Metadata, error) {
 	return &meta, row.Scan(
 		&meta.CreatedAt,
 		&meta.UpdatedAt,
-
 		&meta.BuildRevision,
 		&meta.GoVersion,
-
 		&meta.GoModHash,
 		&meta.GoSumHash,
 		&meta.Vendor,
@@ -122,12 +120,11 @@ var queryUpsertMetadata string
 
 func (s *Sync) upsertMetadata(ctx context.Context, meta *Metadata) error {
 	_, err := s.tx.ExecContext(ctx, queryUpsertMetadata,
-		meta.BuildRevision,
-		meta.GoVersion,
-
-		meta.GoModHash,
-		meta.GoSumHash,
-		meta.Vendor,
+		sql.Named("build_revision", meta.BuildRevision),
+		sql.Named("go_version", meta.GoVersion),
+		sql.Named("go_mod_hash", meta.GoModHash),
+		sql.Named("go_sum_hash", meta.GoSumHash),
+		sql.Named("vendor", meta.Vendor),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upsert metadata: %w", err)

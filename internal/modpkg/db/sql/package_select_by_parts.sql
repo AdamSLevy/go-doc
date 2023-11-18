@@ -8,7 +8,7 @@ WITH RECURSIVE
 AS 
   (
     VALUES (
-      ? || '/', 
+      $search_path || '/', 
       NULL, 
       0, 
       0

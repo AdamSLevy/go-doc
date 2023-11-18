@@ -32,8 +32,11 @@ func prepareStmtUpsertPackage(ctx context.Context, db sql.Querier) (*sql.Stmt, e
 //go:embed sql/package_upsert.sql
 var upsertPackageQuery string
 
-func (s *Sync) upsertPackage(ctx context.Context, pkg *Package) error {
-	row := s.stmt.upsertPkg.QueryRowContext(ctx, pkg.ModuleID, pkg.RelativePath)
+func (s *Sync) upsertPackage(ctx context.Context, mod *Module, importPath string) error {
+	row := s.stmt.upsertPkg.QueryRowContext(ctx,
+		sql.Named("module_id", mod.ID),
+		sql.Named("import_path", importPath),
+	)
 	if err := row.Err(); err != nil {
 		return fmt.Errorf("failed to upsert package: %w", err)
 	}
