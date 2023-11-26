@@ -3,7 +3,7 @@ WITH RECURSIVE
     remaining_path, 
     part_id, 
     path_depth, 
-    part_length
+    total_part_length
   )
 AS 
   (
@@ -15,26 +15,40 @@ AS
     )
     UNION
     SELECT 
-      substr(remaining_path, instr(remaining_path, '/')+1),
-      part.rowid,
-      part.path_depth,
-      part_length + length(part.name)
-    FROM matches, part
-    WHERE
-      name LIKE substr(remaining_path, 1, instr(remaining_path, '/')-1) || '%' 
-    AND (
+      substr(remaining_path, instr(remaining_path, '/')+1) AS remaining_path,
+      part.rowid AS part_id,
+      part.path_depth AS path_depth,
+      total_part_length + length(part.name) AS total_part_length
+    FROM 
+      matches, 
+      part
+    WHERE 
+      remaining_path != ''
+    AND 
+      (
         part.parent_id = matches.part_id
       OR 
         matches.part_id IS NULL
-    )
-    AND
-      remaining_path != ''
+      ) 
+    AND 
+      (
+        (
+          $exact IS TRUE
+        AND 
+          part.name = substr(remaining_path, 1, instr(remaining_path, '/')-1)
+        ) 
+      OR 
+        (
+          $exact IS FALSE
+        AND
+          name LIKE substr(remaining_path, 1, instr(remaining_path, '/')-1) || '%' 
+        )
+      )
     ORDER BY 
       3 DESC, 
       4 ASC
   )
 SELECT 
-  package_id, 
   package_import_path,
   dir
 FROM 
@@ -44,6 +58,6 @@ WHERE
   remaining_path = ''
 ORDER BY 
   (total_num_parts - path_depth) ASC,
-  total_num_parts ASC,
-  part_length ASC
+  total_part_length ASC,
+  total_num_parts ASC
 ;

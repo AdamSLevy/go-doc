@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"path"
 
@@ -57,14 +58,17 @@ type ModulePackage struct {
 //go:embed sql/package_select_by_parts.sql
 var querySelectPackagesByParts string
 
-func SelectPackagesByParts(ctx context.Context, db sql.Querier, parts []string, pkgs []ModulePackage) ([]ModulePackage, error) {
-	rows, err := db.QueryContext(ctx, querySelectPackagesByParts,
-		sql.Named("seach_path", path.Join(parts...)),
-	)
+func selectPackagesByParts(ctx context.Context, db sql.Querier, parts []string, pkgs []ModulePackage) (_ []ModulePackage, rerr error) {
+	rows, err := selectPackagesByPartsRows(ctx, db, true, parts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query packages by parts: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
+
+	defer func() {
+		if err := rows.Close(); err != nil {
+			rerr = errors.Join(rerr, fmt.Errorf("failed to close rows: %w", err))
+		}
+	}()
 
 	for rows.Next() {
 		var pkg ModulePackage
@@ -77,4 +81,18 @@ func SelectPackagesByParts(ctx context.Context, db sql.Querier, parts []string, 
 		return nil, fmt.Errorf("failed to scan all ModulePackages: %w", err)
 	}
 	return pkgs, nil
+}
+
+func (db *DB) SelectPackagesByPartsRows(ctx context.Context, exact bool, parts []string) (*sql.Rows, error) {
+	return selectPackagesByPartsRows(ctx, db.db, exact, parts)
+}
+func selectPackagesByPartsRows(ctx context.Context, db sql.Querier, exact bool, parts []string) (*sql.Rows, error) {
+	rows, err := db.QueryContext(ctx, querySelectPackagesByParts,
+		sql.Named("search_path", path.Join(parts...)),
+		sql.Named("exact", exact),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query packages by parts: %w", err)
+	}
+	return rows, nil
 }

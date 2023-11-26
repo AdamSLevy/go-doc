@@ -17,13 +17,6 @@ type Module struct {
 	ParentDirID int64
 }
 
-func (mod *Module) Package(pkg godoc.PackageDir) *Package {
-	return &Package{
-		ModuleID:   mod.ID,
-		PackageDir: pkg,
-	}
-}
-
 //go:embed sql/module_upsert.sql
 var queryUpsertModule string
 
@@ -35,11 +28,14 @@ func (s *Sync) upsertModule(ctx context.Context, mod *Module) (needSync bool, _ 
 	row := s.stmt.upsertModule.QueryRowContext(
 		ctx,
 		sql.Named("import_path", mod.ImportPath),
-		sql.Named("dir", mod.RelativeDir),
+		sql.Named("version", mod.Version),
+		sql.Named("dir", mod.Dir),
 	)
 	return needSync, row.Scan(
-		&mod.ID,
 		&needSync,
+		&mod.ID,
+		&mod.RelativeDir,
+		&mod.ParentDirID,
 	)
 }
 

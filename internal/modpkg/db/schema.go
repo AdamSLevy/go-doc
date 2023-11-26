@@ -29,13 +29,34 @@ func applySchema(ctx context.Context, db sql.Querier) error {
 // schemaChecksum is the CRC32 checksum of schema.
 var schemaChecksum int32 = func() int32 {
 	crc := crc32.NewIEEE()
-	for _, stmt := range schemaQueries {
-		if _, err := crc.Write([]byte(stmt)); err != nil {
+	for _, query := range schemaQueries {
+		if _, err := crc.Write(minify(query)); err != nil {
 			panic(err)
 		}
 	}
 	return int32(crc.Sum32())
 }()
+
+func minify(query string) []byte {
+	var minified bytes.Buffer
+	minified.Grow(len(query))
+	scanner := bufio.NewScanner(bytes.NewReader([]byte(query)))
+	scanner.Split(bufio.ScanLines)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		sqlLine, _, _ := bytes.Cut(line, []byte(commentPrefix))
+		sqlLine = bytes.TrimSpace(sqlLine)
+		if len(sqlLine) == 0 {
+			continue
+		}
+		_, _ = minified.Write(sqlLine)
+		_, _ = minified.Write([]byte("\n"))
+	}
+	if err := scanner.Err(); err != nil {
+		panic(err)
+	}
+	return minified.Bytes()
+}
 
 // rawSchema is the SQL rawSchema for the index database.
 //
@@ -75,7 +96,10 @@ func splitSQL(sql []byte) (queries []string, _ error) {
 	return queries, nil
 }
 
-const stmtDelimiter = ";---"
+const (
+	commentPrefix = "--"
+	stmtDelimiter = ";---"
+)
 
 func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, rerr error) {
 	defer func() {
@@ -87,7 +111,6 @@ func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, rerr error) {
 		// Trim the token of any leading or trailing whitespace.
 		token = bytes.TrimSpace(token)
 		// Trim leading comment lines.
-		const commentPrefix = "--"
 		for {
 			adv, tkn, err := bufio.ScanLines(token, true)
 			if err != nil {

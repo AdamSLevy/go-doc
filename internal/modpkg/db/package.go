@@ -22,7 +22,7 @@ func (s *Sync) prepareStmtUpsertPackage(ctx context.Context) (err error) {
 }
 
 func prepareStmtUpsertPackage(ctx context.Context, db sql.Querier) (*sql.Stmt, error) {
-	stmt, err := db.PrepareContext(ctx, upsertPackageQuery)
+	stmt, err := db.PrepareContext(ctx, queryUpsertPackage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare upsert package statement: %w", err)
 	}
@@ -30,12 +30,12 @@ func prepareStmtUpsertPackage(ctx context.Context, db sql.Querier) (*sql.Stmt, e
 }
 
 //go:embed sql/package_upsert.sql
-var upsertPackageQuery string
+var queryUpsertPackage string
 
-func (s *Sync) upsertPackage(ctx context.Context, mod *Module, importPath string) error {
+func (s *Sync) upsertPackage(ctx context.Context, pkg *Package) error {
 	row := s.stmt.upsertPkg.QueryRowContext(ctx,
-		sql.Named("module_id", mod.ID),
-		sql.Named("import_path", importPath),
+		sql.Named("module_id", pkg.ModuleID),
+		sql.Named("relative_path", pkg.RelativePath),
 	)
 	if err := row.Err(); err != nil {
 		return fmt.Errorf("failed to upsert package: %w", err)

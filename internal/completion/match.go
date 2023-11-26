@@ -14,6 +14,8 @@ const indent = "    "
 // using Zsh parameter expansion and avoids external dependencies like jq for
 // parsing JSON.
 type Match struct {
+	Tag Tag
+
 	Pkg   string
 	Type  string
 	Match string
@@ -22,16 +24,14 @@ type Match struct {
 	DisplayIndent bool
 
 	Describe string
-
-	Tag string
 }
 
 // String returns the string representation of the match which is the following
 // format. Empty fields are omitted if shown in [brackets].
 //
-//   [<tag>:][[<pkg>.]<type>.]<match>:<display>:<describe>
+//	[<tag>:][[<pkg>.]<type>.]<match>:<display>:<describe>
 //
-// Note: If m.Tag is TagStructFields or TagInterfaceMethods, `<type>.` is also
+// Note: If m.Tag is TagStructField or TagInterfaceMethod, `<type>.` is also
 // prepended to `<display>`.
 func (m Match) String() string {
 	var match string
@@ -50,7 +50,7 @@ func (m Match) String() string {
 		display = indent
 	}
 	switch m.Tag {
-	case TagStructFields, TagInterfaceMethods:
+	case TagStructField, TagInterfaceMethod:
 		// Because of the way struct fields and interface methods are
 		// rendered, there is nothing which identifies their associated
 		// type, so we need to add the type prefix so the user can
@@ -124,60 +124,63 @@ func WithTag(tag Tag) MatchOption {
 type Tag = string
 
 const (
-	// TagPackages contains matches for packages.
-	TagPackages Tag = "packages"
+	// TagPackage contains matches for packages.
+	TagPackage Tag = "package"
 
-	// TagConsts contains the first const in each non-typed const group
+	// TagPackageDir contains matches for package directories.
+	TagPackageDir Tag = "package-dir"
+
+	// TagConst contains the first const in each non-typed const group
 	// declaration, just as go doc displays consts in the package summary.
 	//
 	// Typed const groups are shown under the types tag with the given
 	// type, just as go doc organizes them.
-	TagConsts Tag = "consts"
+	TagConst Tag = "const"
 
-	// TagAllConsts contains all consts, including subsequent names in
+	// TagConstAll contains all consts, including subsequent names in
 	// grouped const declarations, and typed consts.
 	//
 	// Since any const name in a const group will return the same output
 	// from go doc, this tag should only be checked last as a fallback.
-	TagAllConsts Tag = "all-consts"
+	TagConstAll Tag = "const-all"
 
-	// TagVars contains the first var in each non-typed var group
+	// TagVar contains the first var in each non-typed var group
 	// declaration, just as go doc displays vars in the package summary.
 	//
 	// Typed var groups are shown under the types tag with the given type,
 	// just as go doc organizes them.
-	TagVars Tag = "vars"
+	TagVar Tag = "var"
 
-	// TagAllVars contains all vars, including subsequent names in grouped
+	// TagVarAll contains all vars, including subsequent names in grouped
 	// var declarations, and typed vars.
 	//
 	// Since any var name in a var group will return the same output from
 	// go doc, this tag should only be checked last as a fallback.
-	TagAllVars Tag = "all-vars"
+	TagVarAll Tag = "var-all"
 
-	// TagFuncs contains all functions in the package, except for factory
+	// TagFunc contains all functions in the package, except for factory
 	// functions for exported types, which are listed under the types tag
 	// with the type they provide.
-	TagFuncs Tag = "funcs"
+	TagFunc Tag = "func"
 
-	// TagTypes contains all types with their associated var and const
+	// TagType contains all types with their associated var and const
 	// declarations and factory functions.
-	TagTypes Tag = "types"
+	TagType Tag = "type"
 
-	// TagTypeMethods contains all methods in the form "<type>.<method>".
-	TagTypeMethods Tag = "type-methods"
+	// TagTypeMethod contains all methods in the form "<type>.<method>".
+	TagTypeMethod Tag = "type-method"
 
-	// TagInterfaceMethods contains all interface methods in the form
+	// TagInterfaceMethod contains all interface methods in the form
 	// "<type>.<method>"
-	TagInterfaceMethods Tag = "interface-methods"
+	TagInterfaceMethod Tag = "interface-method"
 
-	// TagStructFields contains all struct fields in the form
+	// TagStructField contains all struct fields in the form
 	// "<type>.<field>"
-	TagStructFields Tag = "struct-fields"
+	TagStructField Tag = "struct-field"
 
-	// TagMethods contains all methods without the preceding "<type>."
+	// TagMethod contains all methods without the preceding "<type>."
 	//
 	// Usually these should only be shown after no other matches have been
 	// found.
-	TagMethods Tag = "methods"
+	TagMethod Tag = "method"
 )

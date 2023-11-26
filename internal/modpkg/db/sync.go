@@ -28,7 +28,8 @@ func (db *DB) StartSyncIfNeeded(ctx context.Context) (_ *Sync, rerr error) {
 		return nil, err
 	}
 
-	if db.meta.BuildRevision == meta.BuildRevision &&
+	if db.meta != nil &&
+		db.meta.BuildRevision == meta.BuildRevision &&
 		db.meta.GoVersion == meta.GoVersion &&
 		db.meta.GoModHash == meta.GoModHash &&
 		db.meta.GoSumHash == meta.GoSumHash {
@@ -63,7 +64,10 @@ func (db *DB) StartSyncIfNeeded(ctx context.Context) (_ *Sync, rerr error) {
 	return &Sync{
 		tx:   tx,
 		db:   db,
-		stmt: syncStmts{upsertModule: upsertModStmt},
+		Meta: meta,
+		stmt: syncStmts{
+			upsertModule: upsertModStmt,
+		},
 	}, nil
 }
 
@@ -94,9 +98,12 @@ func (s *Sync) AddModule(ctx context.Context, modDir godoc.PackageDir) (_ *Modul
 	return &mod, nil
 }
 
-func (s *Sync) AddPackage(ctx context.Context, pkg *Package) (rerr error) {
+func (s *Sync) AddPackage(ctx context.Context, mod *Module, pkgImportPath string) (rerr error) {
 	defer s.tx.RollbackOnError(&rerr)
-	return s.upsertPackage(ctx, pkg)
+	return s.upsertPackage(ctx, &Package{
+		ModuleID:     mod.ID,
+		RelativePath: pkgImportPath[len(mod.ImportPath):],
+	})
 }
 
 func (s *Sync) Finish(ctx context.Context) (rerr error) {

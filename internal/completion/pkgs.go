@@ -78,7 +78,7 @@ func (c Completer) completePackageImportPaths(partial string) (matched bool) {
 			match,
 			WithDisplay(dir.ImportPath),
 			WithDescription(desc),
-			WithTag(TagPackages),
+			WithTag(TagPackage),
 		))
 	}
 	return
@@ -196,7 +196,7 @@ func (c Completer) completePackageFilePaths(partial string) (matched bool) {
 			pkgDir = "." + sep + pkgDir
 		}
 
-		c.suggest(NewMatch(pkgDir, WithDescription(desc), WithTag(TagPackages)))
+		c.suggest(NewMatch(pkgDir, WithDescription(desc), WithTag(TagPackage)))
 	}
 	return
 }

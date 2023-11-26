@@ -3,11 +3,13 @@
 INSERT INTO
   module (
     import_path, 
+    version,
     relative_dir,
-    parent_dir_id,
+    parent_dir_id
   )
   SELECT
     $import_path as import_path,
+    $version as version,
     substr($dir, length(parent_dir.dir) + 1) as relative_dir,
     parent_dir.rowid as parent_dir_id
   FROM
@@ -20,19 +22,24 @@ ON CONFLICT (
 DO UPDATE SET
   -- Only sync if the relative or parent dir id has changed.
   sync = ( 
-      relative_dir != excluded.relative_dir 
-    OR 
-      parent_dir_id != excluded.parent_dir_id
+      excluded.version == "" -- always sync if the version is empty
+    OR
+      version != excluded.version -- or if the version has changed
   ),
   -- Keep this module since it's still in use.
   keep = TRUE,
   (
+    version,
     relative_dir,
     parent_dir_id
   ) = (
+    excluded.version,
     excluded.relative_dir,
     excluded.parent_dir_id
   )
 RETURNING
+  sync,
   rowid,
-  sync;
+  relative_dir,
+  parent_dir_id
+;

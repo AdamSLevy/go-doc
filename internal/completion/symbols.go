@@ -17,10 +17,10 @@ func (c Completer) completeSymbol(pkg godoc.PackageInfo, partialSymbol string) (
 	values := make([]*doc.Value, 0, len(pkgDoc.Consts)+len(pkgDoc.Vars))
 	values = append(values, pkgDoc.Consts...)
 	values = append(values, pkgDoc.Vars...)
-	tag := TagConsts
+	tag := TagConst
 	for i, value := range values {
 		if i == len(pkgDoc.Consts) {
-			tag = TagVars
+			tag = TagVar
 		}
 		tag := tag
 		var passName bool
@@ -56,14 +56,14 @@ func (c Completer) completeSymbol(pkg godoc.PackageInfo, partialSymbol string) (
 			// their respective type.
 			continue
 		}
-		matched = c.suggestIfMatchPrefix(pkg, partialSymbol, fnc.Name, fnc.Doc, fnc.Decl, false, WithTag(TagFuncs)) || matched
+		matched = c.suggestIfMatchPrefix(pkg, partialSymbol, fnc.Name, fnc.Doc, fnc.Decl, false, WithTag(TagFunc)) || matched
 	}
 
 	// TYPES
 	for _, typ := range pkgDoc.Types {
 		// Suggest the type itself.
 		typSpec := pkg.FindTypeSpec(typ.Decl, typ.Name)
-		matched = c.suggestIfMatchPrefix(pkg, partialSymbol, typ.Name, typ.Doc, typSpec, false, WithTag(TagTypes)) || matched
+		matched = c.suggestIfMatchPrefix(pkg, partialSymbol, typ.Name, typ.Doc, typSpec, false, WithTag(TagType)) || matched
 
 		// Typed consts and vars.
 		values := make([]*doc.Value, 0, len(typ.Consts)+len(typ.Vars))
@@ -71,7 +71,7 @@ func (c Completer) completeSymbol(pkg godoc.PackageInfo, partialSymbol string) (
 		values = append(values, typ.Vars...)
 		for _, value := range values {
 			for _, name := range value.Names {
-				matched = c.suggestIfMatchPrefix(pkg, partialSymbol, name, value.Doc, value.Decl, false, WithTag(TagTypes), WithDisplayIndent(true)) || matched
+				matched = c.suggestIfMatchPrefix(pkg, partialSymbol, name, value.Doc, value.Decl, false, WithTag(TagType), WithDisplayIndent(true)) || matched
 				// Remaining names were already suggested under
 				// all-consts and all-vars above.
 				break
@@ -80,7 +80,7 @@ func (c Completer) completeSymbol(pkg godoc.PackageInfo, partialSymbol string) (
 
 		// Constructors
 		for _, fnc := range typ.Funcs {
-			matched = c.suggestIfMatchPrefix(pkg, partialSymbol, fnc.Name, fnc.Doc, fnc.Decl, false, WithTag(TagTypes), WithDisplayIndent(true)) || matched
+			matched = c.suggestIfMatchPrefix(pkg, partialSymbol, fnc.Name, fnc.Doc, fnc.Decl, false, WithTag(TagType), WithDisplayIndent(true)) || matched
 		}
 
 		if !c.isExported(typ.Name) {
@@ -90,7 +90,7 @@ func (c Completer) completeSymbol(pkg godoc.PackageInfo, partialSymbol string) (
 
 		// Methods without the preceding `<type>.`
 		for _, method := range typ.Methods {
-			matched = c.suggestIfMatchPrefix(pkg, partialSymbol, method.Name, method.Doc, method.Decl, false, WithTag(TagMethods)) || matched
+			matched = c.suggestIfMatchPrefix(pkg, partialSymbol, method.Name, method.Doc, method.Decl, false, WithTag(TagMethod)) || matched
 		}
 	}
 
@@ -128,7 +128,7 @@ func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *d
 
 	// Type Methods (<type>.<method>)
 	for _, method := range docTyp.Methods {
-		matched = c.suggestIfMatchPrefix(pkg, partial, method.Name, method.Doc, method.Decl, false, withType, WithTag(TagTypeMethods)) || matched
+		matched = c.suggestIfMatchPrefix(pkg, partial, method.Name, method.Doc, method.Decl, false, withType, WithTag(TagTypeMethod)) || matched
 	}
 
 	// Interface and struct types require special handling.
@@ -141,7 +141,7 @@ func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *d
 				continue
 			}
 			name := iMethod.Names[0].Name
-			matched = c.suggestIfMatchPrefix(pkg, partial, name, iMethod.Doc.Text(), iMethod, false, withType, WithTag(TagInterfaceMethods)) || matched
+			matched = c.suggestIfMatchPrefix(pkg, partial, name, iMethod.Doc.Text(), iMethod, false, withType, WithTag(TagInterfaceMethod)) || matched
 		}
 		// An interface has no fields or other methods so we are done
 		// with this type.
@@ -152,7 +152,7 @@ func (c Completer) completeTypeDotMethodOrField(pkg godoc.PackageInfo, docTyp *d
 		for _, field := range typ.Fields.List {
 			docs := field.Doc.Text()
 			for _, name := range field.Names {
-				matched = c.suggestIfMatchPrefix(pkg, partial, name.Name, docs, field, false, withType, WithTag(TagStructFields)) || matched
+				matched = c.suggestIfMatchPrefix(pkg, partial, name.Name, docs, field, false, withType, WithTag(TagStructField)) || matched
 			}
 		}
 	}

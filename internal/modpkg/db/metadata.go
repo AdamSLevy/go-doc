@@ -54,7 +54,10 @@ func parseBuildInfo() (string, string, error) {
 func parseBuildRevision(info *debug.BuildInfo) string {
 	for _, s := range info.Settings {
 		if s.Key == "vcs.revision" {
-			return s.Value
+			if s.Value == "" {
+				return s.Value
+			}
+			break
 		}
 	}
 	return "unknown"

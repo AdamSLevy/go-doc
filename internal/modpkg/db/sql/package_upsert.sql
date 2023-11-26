@@ -5,14 +5,11 @@ INSERT INTO
     module_id, 
     relative_path
   )
-SELECT
-  $module_id as module_id,
-  substr($import_path, length(module.import_path) + 1) as relative_path
-FROM
-  module
-WHERE
-  module.rowid = $module_id
-ON CONFLICT 
+VALUES (
+  $module_id,
+  $relative_path
+)
+ON CONFLICT(module_id, relative_path)
   DO UPDATE SET
     keep = TRUE
 RETURNING

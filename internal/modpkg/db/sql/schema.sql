@@ -35,11 +35,11 @@ CREATE TABLE metadata (
   created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-  go_doc_build_rev TEXT NOT NULL CHECK (go_doc_build_rev != ''),
-  go_version       TEXT NOT NULL CHECK (go_version       != ''),
+  build_revision TEXT NOT NULL CHECK (build_revision != ''),
+  go_version     TEXT NOT NULL CHECK (go_version     != ''),
 
-  go_mod_hash INT  NOT NULL CHECK (go_mod_hash  != 0),
-	go_sum_hash INT  NOT NULL CHECK (go_sum_hash  != 0),
+  go_mod_hash INT  NOT NULL CHECK (go_mod_hash != 0),
+	go_sum_hash INT  NOT NULL CHECK (go_sum_hash != 0),
   vendor      BOOL NOT NULL DEFAULT FALSE
 ) WITHOUT ROWID;---
 
@@ -63,6 +63,8 @@ CREATE TABLE parent_dir (
 --
 -- import_path is the module's import path.
 --
+-- version is the module's version, if any.
+--
 -- relative_dir is the directory the module is located in, relative to the
 -- parent_dir.dir referenced by parent_dir_id.
 --
@@ -82,6 +84,7 @@ CREATE TABLE module (
   rowid INTEGER PRIMARY KEY,
 
   import_path   TEXT NOT NULL UNIQUE,
+  version       TEXT NOT NULL,
   relative_dir  TEXT NOT NULL,
   parent_dir_id INT REFERENCES parent_dir(rowid)
                       ON DELETE RESTRICT
@@ -116,15 +119,14 @@ CREATE VIEW
   module_view (
     module_id,
     module_import_path,
-    module_num_parts
-    module_dir,
+    module_num_parts,
+    module_dir
   ) 
 AS SELECT
-  module.rowid                        AS module_id,
-  trim(module.import_path, '/')       AS module_import_path,
-  module.num_parts                    AS module_num_parts,
-  '/' || trim(parent_dir.dir, '/') || 
-    '/' || trim(module.dir, '/')      AS module_dir
+  module.rowid             AS module_id,
+  module.import_path_clean AS module_import_path,
+  module.num_parts         AS module_num_parts,
+  concat_ws('/', parent_dir.dir, module.relative_dir) AS module_dir
 FROM
   module, 
   parent_dir 
@@ -206,14 +208,15 @@ CREATE VIEW
     dir,
     module_id,
     module_import_path,
-    total_num_parts,
+    total_num_parts
   )
 AS SELECT
   package.rowid AS package_id,
-  module_import_path || '/' || trim(package.relative_path, '/') AS package_import_path,
-  module_dir || '/' || trim(package.relative_path, '/') AS dir,
+  concat_ws('/', module_import_path, package.relative_path_clean ) AS package_import_path,
+  concat_ws('/', module_dir, package.relative_path_clean) AS dir,
   package.module_id AS module_id,
-  module.import_path AS module_import_path
+  module_import_path,
+  module_num_parts + package.num_parts AS total_num_parts
 FROM
   package, 
   module_view

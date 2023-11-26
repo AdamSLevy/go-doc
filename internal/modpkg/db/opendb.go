@@ -22,13 +22,38 @@ func (db *DB) Close() error {
 	return db.db.Close()
 }
 
+const goDocDBPath = ".go-doc/modpkg.sqlite3"
+
 func OpenDB(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string) (_ *DB, rerr error) {
 	mainModDir := strings.TrimSuffix(GOMOD, "/go.mod")
-	dbPath := filepath.Join(mainModDir, ".godoc", "modpkg.sqlite3")
+	dbPath := filepath.Join(mainModDir, goDocDBPath)
 	if err := ensureDBPathDir(dbPath); err != nil {
 		return nil, err
 	}
 
+	parentDirs := NewParentDirs(GOROOT, GOMODCACHE, mainModDir)
+	db, err := openDB(ctx, dbPath, parentDirs)
+	if err == nil {
+		// The database is ready to use.
+		return db, nil
+	}
+	if !errors.Is(err, errSchemaChecksumMismatch) {
+		// The error is not a schema checksum mismatch, so we can't
+		// recover.
+		return nil, err
+	}
+
+	// The schema checksum mismatch means that the database schema is
+	// incompatible with the current version of the code. We need to remove
+	// the database and re-build it. We'll just rename it to be safe.
+	if err := os.Rename(dbPath, dbPath+".old"); err != nil {
+		return nil, fmt.Errorf("failed to remove existing database with incompatible schema: %w", err)
+	}
+
+	return openDB(ctx, dbPath, parentDirs)
+}
+
+func openDB(ctx context.Context, dbPath string, parentDirs ParentDirs) (_ *DB, rerr error) {
 	sqldb, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", rerr)
@@ -46,7 +71,7 @@ func OpenDB(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string) (_ *DB, rerr 
 
 	db := DB{
 		db:   sqldb,
-		dirs: NewParentDirs(GOROOT, GOMODCACHE, mainModDir),
+		dirs: parentDirs,
 	}
 
 	if err := db.initialize(ctx); err != nil {
@@ -103,13 +128,16 @@ func (db *DB) initialize(ctx context.Context) (rerr error) {
 	}
 
 	if ready {
-		if db.meta, err = selectMetadata(ctx, tx); err != nil {
+		if db.meta, err = selectMetadata(ctx, tx); err != nil &&
+			!errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 	}
 
 	return tx.Commit()
 }
+
+var errSchemaChecksumMismatch = errors.New("schema checksum mismatch")
 
 func (db *DB) checkSchema(ctx context.Context) (ready bool, _ error) {
 	appID, err := getApplicationID(ctx, db.db)
@@ -137,7 +165,7 @@ func (db *DB) checkSchema(ctx context.Context) (ready bool, _ error) {
 	}
 
 	if userVersion != schemaChecksum {
-		return false, fmt.Errorf("database schema version mismatch")
+		return false, errSchemaChecksumMismatch
 	}
 
 	return true, nil

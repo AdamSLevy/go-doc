@@ -11,14 +11,13 @@ INSERT INTO
     vendor
   ) 
 VALUES (
-  1 as rowid,
+  1,
+  $build_revision,
+  $go_version,
 
-  $build_revision as build_revision,
-  $go_version as go_version,
-
-  $go_mod_hash as go_mod_hash,
-  $go_sum_hash as go_sum_hash,
-  $vendor as vendor
+  $go_mod_hash,
+  $go_sum_hash,
+  $vendor
 )
 ON CONFLICT(rowid) DO 
   UPDATE SET 

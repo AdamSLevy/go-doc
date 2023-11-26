@@ -2,22 +2,28 @@ package main
 
 import (
 	"context"
+	"log"
 
 	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/godoc"
-	"aslevy.com/go-doc/internal/index"
+	"aslevy.com/go-doc/internal/modpkg"
 )
 
-func packageIndex() *index.Index {
+func openModPkg(ctx context.Context) *modpkg.ModPkg {
 	if GOMOD == "" {
+		dlog.Printf("GOMOD is empty, not using modpkg")
 		return nil
 	}
-	pkgIdx, err := index.Load(context.Background(), GOMOD, dirsToIndexModules(codeRoots()...), index.WithMode(index.Sync))
+	modPkg, err := modpkg.New(ctx,
+		buildCtx.GOROOT, GOMODCACHE, GOMOD,
+		dirsToIndexModules(codeRoots()...),
+	)
 	if err != nil {
-		dlog.Printf("index.Load: %v", err)
+		log.Fatalf("modpkg.New: %v", err)
 	}
-	return pkgIdx
+	return modPkg
 }
+
 func dirsToIndexModules(dirs ...Dir) []godoc.PackageDir {
 	mods := make([]godoc.PackageDir, len(dirs))
 	for i, dir := range dirs {
