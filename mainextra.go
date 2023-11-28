@@ -20,6 +20,7 @@ func openModPkg(ctx context.Context) *modpkg.ModPkg {
 	)
 	if err != nil {
 		log.Fatalf("modpkg.New: %v", err)
+		return nil
 	}
 	return modPkg
 }

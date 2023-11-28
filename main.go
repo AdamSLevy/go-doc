@@ -120,8 +120,14 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 	}
 	godoc.NoImports = godoc.NoImports || short // don't show imports with -short
 	modPkg := openModPkg(context.Background())
-	defer modPkg.Close()
-	xdirs = modPkg
+	if modPkg != nil {
+		xdirs = modPkg
+		defer func() {
+			if err := modPkg.Close(); err != nil {
+				dlog.Printf("modpkg.Close: %v", err)
+			}
+		}()
+	}
 	completer := completion.NewCompleter(writer, xdirs, unexported, matchCase, flagSet.Args())
 
 	// Set up pager and output format writers.
