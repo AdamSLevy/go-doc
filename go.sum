@@ -1,3 +1,7 @@
+github.com/AdamSLevy/chroma/v2 v2.0.0-20221220144730-f8b3daf8e06b h1:RnkMBC/zd4hbhuGyVaf1ZrWwZBmDC/aF0rxxcc+kdI0=
+github.com/AdamSLevy/chroma/v2 v2.0.0-20221220144730-f8b3daf8e06b/go.mod h1:6kHzqF5O6FUSJzBXW7fXELjb+e+7OXW4UpoPqMO7IBQ=
+github.com/AdamSLevy/glamour v0.0.0-20221221064020-2a9d8b218380 h1:8do8JvUeBrloDN2Z1hZovlmaHNrBrOkBCZQkAl9jyxY=
+github.com/AdamSLevy/glamour v0.0.0-20221221064020-2a9d8b218380/go.mod h1:Je45zhJ0zTyWSlt/S5T5CMj8vaj/CyNT2D3THjMWiDc=
 github.com/alecthomas/assert/v2 v2.2.0 h1:f6L/b7KE2bfA+9O4FL3CM/xJccDEwPVYd5fALBiuwvw=
 github.com/alecthomas/assert/v2 v2.2.0/go.mod h1:b/+1DI2Q6NckYi+3mXyH3wFb8qG37K/DuK80n7WefXA=
 github.com/alecthomas/repr v0.1.0 h1:ENn2e1+J3k09gyj2shc0dHr/yjaWSHRlrJ4DPMevDqE=

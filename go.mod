@@ -51,6 +51,6 @@ require (
 )
 
 replace (
-	github.com/alecthomas/chroma/v2 => ../chroma
-	github.com/charmbracelet/glamour => ../glamour
+	github.com/alecthomas/chroma/v2 => github.com/AdamSLevy/chroma/v2 v2.0.0-20221220144730-f8b3daf8e06b
+	github.com/charmbracelet/glamour => github.com/AdamSLevy/glamour v0.0.0-20221221064020-2a9d8b218380
 )
