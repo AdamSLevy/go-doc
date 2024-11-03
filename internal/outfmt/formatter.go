@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 
 	"github.com/charmbracelet/glamour"
@@ -48,10 +49,9 @@ func IsRichMarkdown() bool {
 }
 
 // Formatter returns output wrapped with a term formatter if -fmt=term.
-func Formatter(output io.Writer) (io.WriteCloser, error) {
-	fallback := ioutil.WriteNopCloser(output)
+func Formatter(out io.WriteCloser) io.WriteCloser {
 	if Format != Term {
-		return fallback, nil
+		return out
 	}
 
 	styleOpt := glamour.WithAutoStyle()
@@ -67,24 +67,35 @@ func Formatter(output io.Writer) (io.WriteCloser, error) {
 		glamour.WithWordWrap(0),
 	)
 	if err != nil {
-		return fallback, err
+		log.Printf("failed to use output format %s: %v", Format, err)
+		return out
 	}
 
 	// Modify the style to make it more consistent with standard go doc
 	// text output.
-	err = json.Unmarshal(stylePatchData, &rdr.AnsiOptions.Styles)
-	if err != nil {
-		return fallback, err
+	if err := json.Unmarshal(stylePatchData, &rdr.AnsiOptions.Styles); err != nil {
+		log.Printf("failed to use output format %s: %v", Format, err)
+		return out
 	}
 	rdr.AnsiOptions.Styles.CodeBlock.Theme = SyntaxStyle
 
 	return ioutil.WriteCloserFunc(rdr, func() error {
+		// Close the renderer after writing all input. This triggers
+		// the final conversion to the output format.
 		if err := rdr.Close(); err != nil {
-			return err
+			return fmt.Errorf("outfmt: render: %w", err)
 		}
-		_, err := io.Copy(output, rdr)
+		// Copy the formatted output to the originally given output
+		// writer.
+		if _, err := io.Copy(out, rdr); err != nil {
+			return fmt.Errorf("outfmt: copy: %w", err)
+		}
+		// Finally close the original output writer.
+		if err := out.Close(); err != nil {
+			return fmt.Errorf("outfmt: close: %w", err)
+		}
 		return err
-	}), err
+	})
 }
 
 //go:embed style-patch.json

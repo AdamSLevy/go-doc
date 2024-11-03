@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 
@@ -35,37 +36,48 @@ func AddFlags(fs *flag.FlagSet) {
 // else PAGER. If no pager is set in the environment 'less -R' is used.
 //
 // If the pager fails to start, the output is returned directly with the error.
-func Pager(output io.Writer) (io.WriteCloser, error) {
+func Pager(out io.Writer) io.WriteCloser {
 	pager := getPagerEnv()
 	if pager == "-" {
 		Disabled = true
 	}
 
-	fallback := ioutil.WriteNopCloser(output)
-	if Disabled || !IsTTY(output) || open.Requested {
-		return fallback, nil
+	outNopCloser := ioutil.WriteNopCloser(out)
+	if Disabled || open.Requested || !IsTTY(out) {
+		return outNopCloser
 	}
 
-	pagerCmd, err := executil.Command(getPagerEnv())
-	if err != nil {
-		return fallback, err
+	pagerArgs := make([]string, 1, 2)
+	pagerArgs[0] = pager
+	if pager == "less" {
+		pagerArgs = append(pagerArgs, "-RF")
 	}
-	pagerCmd.Stdout = output
+
+	pagerCmd, err := executil.Command(pagerArgs...)
+	if err != nil {
+		log.Println("pager:", err)
+		return outNopCloser
+	}
+	pagerCmd.Stdout = out
 	pagerCmd.Stderr = os.Stderr
 
 	pagerStdin, err := pagerCmd.StdinPipe()
 	if err != nil {
-		return fallback, fmt.Errorf("failed to obtain stdin pipe for pager: %w", err)
+		log.Println("pager:", fmt.Errorf("stdin pipe: %w", err))
+		return outNopCloser
 	}
 
 	if err := pagerCmd.Start(); err != nil {
-		return fallback, fmt.Errorf("failed to start pager: %w", err)
+		log.Println("pager:", fmt.Errorf("start: %w", err))
+		return outNopCloser
 	}
 
 	return ioutil.WriteCloserFunc(pagerStdin, func() error {
-		pagerStdin.Close()
+		if err := pagerStdin.Close(); err != nil {
+			log.Println("pager: close stdin pipe:", err)
+		}
 		return pagerCmd.Wait()
-	}), nil
+	})
 }
 
 func getPagerEnv() string {
@@ -84,8 +96,8 @@ func getPagerEnv() string {
 
 // IsTTY returns true if output is a terminal, as opposed to a pipe, or some
 // other buffer.
-func IsTTY(output io.Writer) bool {
-	f, ok := output.(*os.File)
+func IsTTY(out io.Writer) bool {
+	f, ok := out.(*os.File)
 	if !ok {
 		return false
 	}
