@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"aslevy.com/go-doc/internal/index"
+	"aslevy.com/go-doc/internal/modpkg"
 )
 
 func TestMain(m *testing.M) {
@@ -31,9 +31,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	os.Setenv("GODOC_FORMAT", "text")          // Use the text format.
-	os.Setenv("GODOC_PAGER", "-")              // Disable paging.
-	os.Setenv(index.SyncEnvVar, index.ModeOff) // Disable index.
+	os.Setenv("GODOC_FORMAT", "text")            // Use the text format.
+	os.Setenv("GODOC_PAGER", "-")                // Disable paging.
+	os.Setenv(modpkg.SyncEnvVar, modpkg.ModeOff) // Disable modpkg.
 
 	dirsInit(
 		Dir{importPath: "testdata", dir: testdataDir},

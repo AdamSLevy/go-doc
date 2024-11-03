@@ -11,7 +11,6 @@ import (
 	"aslevy.com/go-doc/internal/completion"
 	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/godoc"
-	"aslevy.com/go-doc/internal/index"
 	"aslevy.com/go-doc/internal/install"
 	"aslevy.com/go-doc/internal/open"
 	"aslevy.com/go-doc/internal/outfmt"
@@ -26,7 +25,6 @@ func addAllFlags(fs *flag.FlagSet) {
 	godoc.AddFlags(fs)
 	pager.AddFlags(fs)
 	open.AddFlags(fs)
-	index.AddFlags(fs)
 	outfmt.AddFlags(fs)
 }
 

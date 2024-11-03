@@ -44,6 +44,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -60,7 +61,6 @@ import (
 	"aslevy.com/go-doc/internal/dlog"
 	"aslevy.com/go-doc/internal/flags"
 	"aslevy.com/go-doc/internal/godoc"
-	"aslevy.com/go-doc/internal/index"
 	"aslevy.com/go-doc/internal/outfmt"
 )
 
@@ -118,11 +118,15 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 			return err
 		}
 	}
-
 	godoc.NoImports = godoc.NoImports || short // don't show imports with -short
-	if pkgIdx := packageIndex(); pkgIdx != nil {
-		defer pkgIdx.Close()
-		xdirs = index.NewDirs(pkgIdx)
+	modPkg := openModPkg(context.Background())
+	if modPkg != nil {
+		xdirs = modPkg
+		defer func() {
+			if err := modPkg.Close(); err != nil {
+				dlog.Printf("modpkg.Close: %v", err)
+			}
+		}()
 	}
 	completer := completion.NewCompleter(writer, xdirs, unexported, matchCase, flagSet.Args())
 

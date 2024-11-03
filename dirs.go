@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"aslevy.com/go-doc/internal/dlog"
 	"golang.org/x/mod/semver"
 )
 
@@ -41,6 +42,7 @@ var dirs Dirs
 // dirsInit starts the scanning of package directories in GOROOT and GOPATH. Any
 // extra paths passed to it are included in the channel.
 func dirsInit(extra ...Dir) {
+	dlog.Printf("GOROOT: %s", buildCtx.GOROOT)
 	if buildCtx.GOROOT == "" {
 		stdout, err := exec.Command("go", "env", "GOROOT").Output()
 		if err != nil {

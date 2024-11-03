@@ -4,19 +4,49 @@
 
 package godoc
 
-import "errors"
+import (
+	"errors"
+	"path/filepath"
+	"strings"
+)
 
-// A PackageDir describes a directory holding code by specifying
-// the expected import path and the file system directory.
+// A PackageDir describes a directory holding code by specifying the expected
+// import path and the file system directory.
 type PackageDir struct {
 	ImportPath string // import path for that dir
 	Dir        string // file system directory
+	Version    string // module version (if applicable)
 }
 
-func NewPackageDir(importPath, dir string) PackageDir { return PackageDir{importPath, dir} }
+type PackageDirOption func(*PackageDir)
 
-// Dirs exposes the functionality of the cmd/go-doc.Dirs type that is
-// needed by the completion package.
+func WithVersion(version string) PackageDirOption {
+	return func(pkg *PackageDir) {
+		pkg.Version = version
+	}
+}
+
+func NewPackageDir(importPath, dir string, opts ...PackageDirOption) PackageDir {
+	pkgDir := PackageDir{
+		ImportPath: importPath,
+		Dir:        dir,
+	}
+	for _, opt := range opts {
+		opt(&pkgDir)
+	}
+	if pkgDir.Version == "" {
+		pkgDir.Version = parseVersionFromDir(dir)
+	}
+	return pkgDir
+}
+func parseVersionFromDir(dir string) string {
+	base := filepath.Base(dir)
+	_, version, _ := strings.Cut(base, "@")
+	return version
+}
+
+// Dirs exposes the functionality of the cmd/go-doc.Dirs type that is needed by
+// the completion package.
 type Dirs interface {
 	// Next returns the next PackageDir in the list of packages.
 	Next() (PackageDir, bool)
