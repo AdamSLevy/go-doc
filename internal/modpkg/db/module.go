@@ -11,17 +11,15 @@ import (
 )
 
 type Module struct {
+	ID int64
 	godoc.PackageDir
-	ID          int64
-	RelativeDir string
-	ParentDirID int64
 }
 
-//go:embed sql/module_upsert.sql
-var queryUpsertModule string
+//go:embed query/module_upsert.sql
+var queryModuleUpsertSql string
 
 func prepareUpsertModule(ctx context.Context, db sql.Querier) (*sql.Stmt, error) {
-	return db.PrepareContext(ctx, queryUpsertModule)
+	return db.PrepareContext(ctx, queryModuleUpsertSql)
 }
 
 func (s *Sync) upsertModule(ctx context.Context, mod *Module) (needSync bool, _ error) {
@@ -29,13 +27,10 @@ func (s *Sync) upsertModule(ctx context.Context, mod *Module) (needSync bool, _ 
 		ctx,
 		sql.Named("import_path", mod.ImportPath),
 		sql.Named("version", mod.Version),
-		sql.Named("dir", mod.Dir),
 	)
 	return needSync, row.Scan(
 		&needSync,
 		&mod.ID,
-		&mod.RelativeDir,
-		&mod.ParentDirID,
 	)
 }
 
@@ -88,7 +83,7 @@ func scanModules(ctx context.Context, rows *sql.Rows) (mods []Module, _ error) {
 	return mods, nil
 }
 func scanModule(row sql.RowScanner) (mod Module, _ error) {
-	if err := row.Scan(&mod.ID, &mod.ImportPath, &mod.RelativeDir, &mod.ParentDirID); err != nil {
+	if err := row.Scan(&mod.ID, &mod.ImportPath); err != nil {
 		return mod, fmt.Errorf("failed to scan module: %w", err)
 	}
 	return mod, nil
@@ -99,16 +94,4 @@ func (s *Sync) selectModulesToPrune(ctx context.Context) ([]Module, error) {
 }
 func (s *Sync) selectModulesThatNeedSync(ctx context.Context) ([]Module, error) {
 	return selectModulesFromWhere(ctx, s.tx, "module", "sync=TRUE ORDER BY rowid")
-}
-
-//go:embed sql/module_update_parent_dir.sql
-var queryUpdateModuleParentDir string
-
-func updateModuleParentDir(ctx context.Context, db sql.Querier, vendor bool) error {
-	_, err := db.ExecContext(ctx, queryUpdateModuleParentDir,
-		sql.Named("vendor", vendor),
-		sql.Named("parent_dir_id_vendor", ParentDirIdVendor),
-		sql.Named("parent_dir_id_gomodcache", ParentDirIdGOMODCACHE),
-	)
-	return err
 }

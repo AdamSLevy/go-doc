@@ -24,8 +24,8 @@ type ModPkg struct {
 	exact  bool
 }
 
-func New(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string, coderoots []godoc.PackageDir) (*ModPkg, error) {
-	db, err := db.OpenDB(ctx, GOROOT, GOMODCACHE, GOMOD)
+func New(ctx context.Context, mainModDir string, coderoots []godoc.PackageDir) (*ModPkg, error) {
+	db, err := db.Open(ctx, mainModDir)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func New(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string, coderoots []godo
 
 func (modPkg *ModPkg) sync(ctx context.Context, coderoots []godoc.PackageDir) (rerr error) {
 
-	sync, err := modPkg.db.StartSyncIfNeeded(ctx)
+	sync, err := modPkg.db.Sync(ctx)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func (modPkg *ModPkg) sync(ctx context.Context, coderoots []godoc.PackageDir) (r
 		}
 	}()
 
-	if sync.Meta.Vendor {
+	if sync.Current.Vendor {
 		return modPkg.syncFromVendorDir(ctx, sync, coderoots[0])
 	}
 	return modPkg.syncFromGoModCache(ctx, progressBar, sync, coderoots)

@@ -6,15 +6,14 @@ import (
 	"errors"
 	"fmt"
 
-	"aslevy.com/go-doc/internal/godoc"
 	"aslevy.com/go-doc/internal/sql"
 )
 
 type Sync struct {
-	tx   *sql.Tx
-	db   *DB
-	Meta Metadata
-	stmt syncStmts
+	tx      *sql.Tx
+	db      *DB
+	Current *Metadata
+	stmt    syncStmts
 }
 
 type syncStmts struct {
@@ -22,27 +21,12 @@ type syncStmts struct {
 	upsertPkg    *sql.Stmt
 }
 
-func (db *DB) StartSyncIfNeeded(ctx context.Context) (_ *Sync, rerr error) {
-	meta, err := NewMetadata(db.dirs.MainModule)
+func (db *DB) Sync(ctx context.Context) (_ *Sync, rerr error) {
+	current, err := db.stored.NeedsSync()
 	if err != nil {
-		return nil, err
+		return nil, nil
 	}
-
-	if db.meta != nil &&
-		db.meta.BuildRevision == meta.BuildRevision &&
-		db.meta.GoVersion == meta.GoVersion &&
-		db.meta.GoModHash == meta.GoModHash &&
-		db.meta.GoSumHash == meta.GoSumHash {
-		if db.meta.Vendor == meta.Vendor {
-			return nil, nil
-		}
-
-		// If the only thing that changed is use of a vendor directory,
-		// then we can just update the parent directory reference for
-		// all modules between the GOMODCACHE dir and the vendor dir.
-		if err := updateModuleParentDir(ctx, db.db, meta.Vendor); err != nil {
-			return nil, err
-		}
+	if current == nil {
 		return nil, nil
 	}
 
@@ -62,9 +46,9 @@ func (db *DB) StartSyncIfNeeded(ctx context.Context) (_ *Sync, rerr error) {
 	}
 
 	return &Sync{
-		tx:   tx,
-		db:   db,
-		Meta: meta,
+		tx:      tx,
+		db:      db,
+		Current: current,
 		stmt: syncStmts{
 			upsertModule: upsertModStmt,
 		},
@@ -79,9 +63,13 @@ func setAllModuleSyncKeepFalse(ctx context.Context, db sql.Querier) error {
 	return err
 }
 
-func (s *Sync) AddModule(ctx context.Context, modDir godoc.PackageDir) (_ *Module, rerr error) {
+func (s *Sync) AddModule(ctx context.Context, importPath, version string) (_ *Module, rerr error) {
 	defer s.tx.RollbackOnError(&rerr)
-	mod := Module{PackageDir: modDir}
+
+	var mod Module
+	mod.ImportPath = importPath
+	mod.Version = version
+
 	needSync, err := s.upsertModule(ctx, &mod)
 	if err != nil {
 		return nil, err
@@ -126,7 +114,7 @@ func (s *Sync) Finish(ctx context.Context) (rerr error) {
 }
 func (s *Sync) finish(ctx context.Context) (rerr error) {
 	defer s.tx.RollbackOnError(&rerr)
-	if err := s.upsertMetadata(ctx, &s.Meta); err != nil {
+	if err := s.upsertMetadata(ctx, s.Current); err != nil {
 		return err
 	}
 	return s.tx.Commit()

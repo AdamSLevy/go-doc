@@ -13,6 +13,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+//go:embed schema/metadata.sql
+var schemaMetadataSql []byte
+
+//go:embed schema/modpkg.sql
+var schemaModPkgSql []byte
+
+//go:embed schema/importpath.sql
+var schemaImportPathSql []byte
+
+var schemaQueries = mustSplitSqlQueries(schemaMetadataSql, schemaModPkgSql, schemaImportPathSql)
+
+// schemaChecksum is the CRC32 checksum of schema.
+var schemaChecksum int32 = func() int32 {
+	crc := crc32.NewIEEE()
+	for _, query := range schemaQueries {
+		if _, err := crc.Write(minifySql(query)); err != nil {
+			panic(err)
+		}
+	}
+	return int32(crc.Sum32())
+}()
+
 // applySchema execs all schemaQueries against the db.
 func applySchema(ctx context.Context, db sql.Querier) error {
 	if err := execQueries(ctx, db, schemaQueries...); err != nil {
@@ -26,18 +48,26 @@ func applySchema(ctx context.Context, db sql.Querier) error {
 	return setUserVersion(ctx, db, schemaChecksum)
 }
 
-// schemaChecksum is the CRC32 checksum of schema.
-var schemaChecksum int32 = func() int32 {
-	crc := crc32.NewIEEE()
-	for _, query := range schemaQueries {
-		if _, err := crc.Write(minify(query)); err != nil {
-			panic(err)
-		}
+func mustSplitSqlQueries(sqlScript ...[]byte) (queries []string) {
+	queries, err := splitSqlQueries(sqlScript...)
+	if err != nil {
+		panic(err)
 	}
-	return int32(crc.Sum32())
-}()
+	return queries
+}
 
-func minify(query string) []byte {
+func splitSqlQueries(sqlScripts ...[]byte) (queries []string, err error) {
+	for _, sql := range sqlScripts {
+		qrys, err := splitSql(sql)
+		if err != nil {
+			return nil, err
+		}
+		queries = append(queries, qrys...)
+	}
+	return queries, nil
+}
+
+func minifySql(query string) []byte {
 	var minified bytes.Buffer
 	minified.Grow(len(query))
 	scanner := bufio.NewScanner(bytes.NewReader([]byte(query)))
@@ -58,19 +88,6 @@ func minify(query string) []byte {
 	return minified.Bytes()
 }
 
-// rawSchema is the SQL rawSchema for the index database.
-//
-//go:embed sql/schema.sql
-var rawSchema []byte
-
-var schemaQueries = func() []string {
-	queries, err := splitSQL(rawSchema)
-	if err != nil {
-		panic(err)
-	}
-	return queries
-}()
-
 func execQueries(ctx context.Context, db sql.Querier, queries ...string) error {
 	for _, query := range queries {
 		_, err := db.ExecContext(ctx, query)
@@ -80,9 +97,10 @@ func execQueries(ctx context.Context, db sql.Querier, queries ...string) error {
 	}
 	return nil
 }
-func splitSQL(sql []byte) (queries []string, _ error) {
+
+func splitSql(sql []byte) (queries []string, _ error) {
 	scanner := bufio.NewScanner(bytes.NewReader(sql))
-	scanner.Split(sqlSplit)
+	scanner.Split(scanSqlQueries)
 	for scanner.Scan() {
 		query := scanner.Text()
 		if query == "" {
@@ -101,7 +119,7 @@ const (
 	stmtDelimiter = ";---"
 )
 
-func sqlSplit(data []byte, atEOF bool) (advance int, token []byte, rerr error) {
+func scanSqlQueries(data []byte, atEOF bool) (advance int, token []byte, rerr error) {
 	defer func() {
 		if (rerr != nil &&
 			!errors.Is(rerr, bufio.ErrFinalToken)) ||

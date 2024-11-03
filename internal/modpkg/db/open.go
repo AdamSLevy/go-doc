@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"aslevy.com/go-doc/internal/sql"
 )
@@ -14,25 +13,22 @@ import (
 type DB struct {
 	db *sql.DB
 
-	meta *Metadata
-	dirs ParentDirs
+	stored Metadata
 }
 
 func (db *DB) Close() error {
 	return db.db.Close()
 }
 
-const goDocDBPath = ".go-doc/modpkg.sqlite3"
+const goDocDBPath = ".go-doc/go-doc.sqlite3"
 
-func OpenDB(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string) (_ *DB, rerr error) {
-	mainModDir := strings.TrimSuffix(GOMOD, "/go.mod")
+func Open(ctx context.Context, mainModDir string) (_ *DB, rerr error) {
 	dbPath := filepath.Join(mainModDir, goDocDBPath)
-	if err := ensureDBPathDir(dbPath); err != nil {
+	if err := ensureDBPathDirExists(dbPath); err != nil {
 		return nil, err
 	}
 
-	parentDirs := NewParentDirs(GOROOT, GOMODCACHE, mainModDir)
-	db, err := openDB(ctx, dbPath, parentDirs)
+	db, err := open(ctx, dbPath)
 	if err == nil {
 		// The database is ready to use.
 		return db, nil
@@ -43,6 +39,8 @@ func OpenDB(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string) (_ *DB, rerr 
 		return nil, err
 	}
 
+	// TODO: log that we are moving the old database to .old
+
 	// The schema checksum mismatch means that the database schema is
 	// incompatible with the current version of the code. We need to remove
 	// the database and re-build it. We'll just rename it to be safe.
@@ -50,28 +48,28 @@ func OpenDB(ctx context.Context, GOROOT, GOMODCACHE, GOMOD string) (_ *DB, rerr 
 		return nil, fmt.Errorf("failed to remove existing database with incompatible schema: %w", err)
 	}
 
-	return openDB(ctx, dbPath, parentDirs)
+	return open(ctx, dbPath)
 }
 
-func openDB(ctx context.Context, dbPath string, parentDirs ParentDirs) (_ *DB, rerr error) {
+func open(ctx context.Context, dbPath string) (_ *DB, rerr error) {
 	sqldb, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", rerr)
 	}
-	// We need to close the database if we fail to initialize it.
+	// Close the database if we fail to initialize for any reason.
 	defer func() {
 		if rerr == nil {
 			// Success, so leave the database open.
 			return
 		}
+		// Failed to initialize for some reason so close the database.
 		if err := sqldb.Close(); err != nil {
 			rerr = errors.Join(rerr, fmt.Errorf("failed to close database: %w", err))
 		}
 	}()
 
 	db := DB{
-		db:   sqldb,
-		dirs: parentDirs,
+		db: sqldb,
 	}
 
 	if err := db.initialize(ctx); err != nil {
@@ -80,7 +78,7 @@ func openDB(ctx context.Context, dbPath string, parentDirs ParentDirs) (_ *DB, r
 
 	return &db, nil
 }
-func ensureDBPathDir(dbPath string) error {
+func ensureDBPathDirExists(dbPath string) error {
 	dirPath := filepath.Dir(dbPath)
 	if err := os.Mkdir(dirPath, 0755); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("failed to create database directory %s: %w", dirPath, err)
@@ -123,12 +121,8 @@ func (db *DB) initialize(ctx context.Context) (rerr error) {
 		}
 	}
 
-	if err := upsertParentDirs(ctx, tx, &db.dirs); err != nil {
-		return err
-	}
-
 	if ready {
-		if db.meta, err = selectMetadata(ctx, tx); err != nil &&
+		if db.stored, err = selectMetadata(ctx, tx); err != nil &&
 			!errors.Is(err, sql.ErrNoRows) {
 			return err
 		}

@@ -22,7 +22,7 @@ func (modPkg *ModPkg) syncFromGoModCache(ctx context.Context, progressBar *progr
 	g.SetLimit(runtime.NumCPU()*2 + 1)
 	g.Go(func() error {
 		for _, root := range coderoots {
-			mod, err := sync.AddModule(ctx, root)
+			mod, err := sync.AddModule(ctx, root.ImportPath, root.Version)
 			if err != nil {
 				return err
 			}

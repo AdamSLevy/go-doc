@@ -14,10 +14,7 @@ func openModPkg(ctx context.Context) *modpkg.ModPkg {
 		dlog.Printf("GOMOD is empty, not using modpkg")
 		return nil
 	}
-	modPkg, err := modpkg.New(ctx,
-		buildCtx.GOROOT, GOMODCACHE, GOMOD,
-		dirsToIndexModules(codeRoots()...),
-	)
+	modPkg, err := modpkg.New(ctx, GOMOD, dirsToIndexModules(codeRoots()...),)
 	if err != nil {
 		log.Fatalf("modpkg.New: %v", err)
 		return nil

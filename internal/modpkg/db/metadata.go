@@ -22,13 +22,30 @@ type Metadata struct {
 	BuildRevision string
 	GoVersion     string
 
+	MainModule
+}
+
+type MainModule struct {
+	Dir       string
 	GoModHash int32
 	GoSumHash int32
+	Vendor    bool
+}
 
-	Vendor bool
+func (stored Metadata) NeedsSync() (*Metadata, error) {
+	current, err := NewMetadata(stored.MainModule.Dir)
+	if err != nil {
+		return &current, err
+	}
+	if stored.MainModule == current.MainModule {
+		return nil, nil
+	}
+	return &current, nil
 }
 
 func NewMetadata(mainModuleDir string) (meta Metadata, rerr error) {
+	meta.MainModule.Dir = mainModuleDir
+
 	var err error
 	meta.BuildRevision, meta.GoVersion, err = parseBuildInfo()
 	rerr = errors.Join(rerr, err)
@@ -97,17 +114,17 @@ func usingVendor(mainModDir string) (bool, error) {
 	return true, nil
 }
 
-func (db *DB) SelectMetadata(ctx context.Context) (*Metadata, error) {
+func (db *DB) SelectMetadata(ctx context.Context) (Metadata, error) {
 	return selectMetadata(ctx, db.db)
 }
 
 //go:embed sql/metadata_select.sql
 var querySelectMetadata string
 
-func selectMetadata(ctx context.Context, db sql.Querier) (*Metadata, error) {
+func selectMetadata(ctx context.Context, db sql.Querier) (Metadata, error) {
 	var meta Metadata
 	row := db.QueryRowContext(ctx, querySelectMetadata)
-	return &meta, row.Scan(
+	return meta, row.Scan(
 		&meta.CreatedAt,
 		&meta.UpdatedAt,
 		&meta.BuildRevision,

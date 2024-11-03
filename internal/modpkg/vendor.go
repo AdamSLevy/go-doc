@@ -10,7 +10,7 @@ import (
 
 func (modPkg *ModPkg) syncFromVendorDir(ctx context.Context, sync *db.Sync, vendor godoc.PackageDir) error {
 	return vendored.Parse(ctx, vendor.Dir, func(ctx context.Context, modDir godoc.PackageDir) (vendored.PackageHandler, error) {
-		mod, err := sync.AddModule(ctx, modDir)
+		mod, err := sync.AddModule(ctx, modDir.ImportPath, modDir.Version)
 		if err != nil {
 			return nil, err
 		}
