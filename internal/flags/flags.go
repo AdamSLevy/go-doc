@@ -63,7 +63,7 @@ func addAllFlags(fs *flag.FlagSet) {
 // any other position in args.
 //
 //syntax:text
-func Parse(fs *flag.FlagSet, args ...string) {
+func Parse(fs *flag.FlagSet, args ...string) error {
 	if len(args) > 0 && args[0] == "-complete" {
 		args = args[1:]
 		completion.Requested = true
@@ -81,7 +81,7 @@ func Parse(fs *flag.FlagSet, args ...string) {
 
 	// Final call to parse with only the non-flag arguments so that
 	// fs.Args() returns the correct values.
-	fs.Parse(args)
+	return fs.Parse(args)
 }
 
 // parse calls fs.Parse(args) recursively until all -flag arguments have been
@@ -89,12 +89,15 @@ func Parse(fs *flag.FlagSet, args ...string) {
 // arguments are returned.
 func parse(fs *flag.FlagSet, args ...string) []string {
 	// Parse everything up to the first non-flag argument.
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	// Collect the non-flag arguments up to the next flag argument, then
 	// recurse to parse the next set of arguments as flags again.
 	args = make([]string, 0, fs.NArg())
 	for i, arg := range fs.Args() {
+		if arg == "" {
+			continue
+		}
 		if strings.HasPrefix(arg, "-") {
 			return append(args, parse(fs, fs.Args()[i:]...)...)
 		}
